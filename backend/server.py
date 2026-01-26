@@ -768,7 +768,8 @@ RESPONDE EN ESPAÑOL. Sé conciso pero amable."""
             "response": ai_response,
             "intent": intent,
             "patient_id": patient_id,
-            "conversation_id": conv_id
+            "conversation_id": conv_id,
+            "phone": phone
         }
         
     except Exception as e:
