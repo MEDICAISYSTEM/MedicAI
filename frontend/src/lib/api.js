@@ -1,0 +1,70 @@
+import axios from "axios";
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
+
+const api = axios.create({
+  baseURL: `${API_URL}/api`,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+// Add auth token to requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("medicai_token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle auth errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("medicai_token");
+      localStorage.removeItem("medicai_admin");
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Auth
+export const login = (email, password) =>
+  api.post("/auth/login", { email, password });
+
+export const register = (email, password, name) =>
+  api.post("/auth/register", { email, password, name });
+
+export const getCurrentUser = () => api.get("/auth/me");
+
+// Dashboard
+export const getDashboardStats = () => api.get("/dashboard/stats");
+
+// Patients
+export const getPatients = () => api.get("/patients");
+export const getPatient = (id) => api.get(`/patients/${id}`);
+
+// Appointments
+export const getAppointments = (params) => api.get("/appointments", { params });
+export const createAppointment = (data) => api.post("/appointments", data);
+export const updateAppointment = (id, data) => api.put(`/appointments/${id}`, data);
+export const deleteAppointment = (id) => api.delete(`/appointments/${id}`);
+
+// Availability
+export const getAvailability = () => api.get("/availability");
+export const createAvailability = (data) => api.post("/availability", data);
+export const updateAvailability = (id, data) => api.put(`/availability/${id}`, data);
+export const deleteAvailability = (id) => api.delete(`/availability/${id}`);
+
+// Conversations
+export const getConversations = () => api.get("/conversations");
+export const getConversation = (id) => api.get(`/conversations/${id}`);
+
+// Alerts
+export const getAlerts = (params) => api.get("/alerts", { params });
+export const updateAlert = (id, data) => api.put(`/alerts/${id}`, data);
+
+export default api;
