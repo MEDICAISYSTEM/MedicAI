@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-01-26T19:43:54.181857",
-  "total_tests": 12,
-  "passed_tests": 2,
-  "failed_tests": 10,
-  "success_rate": 16.666666666666664,
+  "timestamp": "2026-01-26T19:53:06.425789",
+  "total_tests": 28,
+  "passed_tests": 21,
+  "failed_tests": 7,
+  "success_rate": 75.0,
   "test_details": [
     {
       "test": "Root Endpoint",
@@ -21,24 +21,136 @@
     },
     {
       "test": "Admin Registration",
-      "success": false,
-      "details": "Status code mismatch",
-      "expected_status": 200,
-      "actual_status": 520
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Admin Login",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get Current Admin",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Invalid Login",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Dashboard Stats",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get All Patients",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get Non-existent Patient",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get All Appointments",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get Appointments by Date",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get Appointments by Status",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get Availability",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Create Availability Slot",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Update Availability Slot",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Delete Availability Slot",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get All Conversations",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get Non-existent Conversation",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get All Alerts",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Get Pending Alerts",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
     },
     {
       "test": "WhatsApp Webhook",
-      "success": false,
-      "details": "Status code mismatch",
-      "expected_status": 200,
-      "actual_status": 520
-    },
-    {
-      "test": "WhatsApp Webhook (No Auth)",
-      "success": false,
-      "details": "Status code mismatch",
-      "expected_status": 200,
-      "actual_status": 520
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
     },
     {
       "test": "Protected Route: dashboard/stats",
