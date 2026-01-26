@@ -1,0 +1,141 @@
+{
+  "identity": {
+    "name": "MedicAI Design System",
+    "persona": "E1: The Anti-AI Designer",
+    "philosophy": "Clinical Glass - A fusion of sterile medical precision with the warmth of human care and the depth of modern tech.",
+    "principles": [
+      "Fusion over Imitation: Mix medical sterility with consumer app fluidity.",
+      "Emotion First: Trust and Calm are the primary emotions.",
+      "Content is King: Data visualization must be instant and actionable.",
+      "Zoom In: Focus on the patient data that matters right now.",
+      "Negative Space: Use white space to reduce cognitive load for stressed medical staff."
+    ]
+  },
+  "typography": {
+    "fonts": {
+      "primary": "Manrope, sans-serif",
+      "secondary": "Inter, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "usage": {
+      "headings": {
+        "font": "Manrope",
+        "weights": ["600", "700"],
+        "tracking": "-0.02em",
+        "styles": {
+          "h1": "text-4xl md:text-5xl font-bold tracking-tight text-slate-900",
+          "h2": "text-3xl font-semibold tracking-tight text-slate-900",
+          "h3": "text-2xl font-semibold text-slate-800",
+          "h4": "text-xl font-medium text-slate-800"
+        }
+      },
+      "body": {
+        "font": "Inter",
+        "weights": ["400", "500"],
+        "styles": {
+          "base": "text-base leading-relaxed text-slate-600",
+          "small": "text-sm text-slate-500",
+          "large": "text-lg leading-relaxed text-slate-700"
+        }
+      }
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "DEFAULT": "#0EA5E9",
+        "foreground": "#FFFFFF",
+        "50": "#F0F9FF",
+        "100": "#E0F2FE",
+        "500": "#0EA5E9",
+        "600": "#0284C7",
+        "900": "#0C4A6E"
+      },
+      "secondary": {
+        "DEFAULT": "#F1F5F9",
+        "foreground": "#0F172A",
+        "50": "#F8FAFC",
+        "100": "#F1F5F9",
+        "900": "#0F172A"
+      },
+      "accent": {
+        "DEFAULT": "#6366F1",
+        "foreground": "#FFFFFF",
+        "glow": "rgba(99, 102, 241, 0.5)"
+      },
+      "background": "#FFFFFF",
+      "surface": "#F8FAFC",
+      "border": "#E2E8F0",
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "error": "#EF4444"
+    },
+    "gradients": {
+      "primary": "bg-gradient-to-r from-sky-500 to-blue-600",
+      "subtle": "bg-gradient-to-b from-white to-slate-50",
+      "glass": "bg-white/70 backdrop-blur-xl border border-white/20 shadow-sm"
+    }
+  },
+  "layout": {
+    "grid": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "marketing": "grid grid-cols-1 md:grid-cols-12 gap-8"
+    },
+    "spacing": {
+      "container": "p-6 md:p-8 lg:p-12",
+      "section": "py-16 md:py-24",
+      "element": "gap-4"
+    },
+    "radius": {
+      "default": "rounded-xl",
+      "button": "rounded-lg",
+      "card": "rounded-2xl"
+    }
+  },
+  "components": {
+    "Card": {
+      "base": "bg-white border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 rounded-2xl overflow-hidden",
+      "header": "p-6 border-b border-slate-50",
+      "content": "p-6"
+    },
+    "Button": {
+      "primary": "bg-sky-500 hover:bg-sky-600 text-white shadow-lg shadow-sky-500/20 transition-all hover:-translate-y-0.5",
+      "secondary": "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300",
+      "ghost": "hover:bg-slate-100 text-slate-600"
+    },
+    "Input": {
+      "base": "bg-slate-50 border-slate-200 focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all rounded-lg"
+    },
+    "Badge": {
+      "success": "bg-emerald-50 text-emerald-700 border border-emerald-100",
+      "warning": "bg-amber-50 text-amber-700 border border-amber-100",
+      "error": "bg-red-50 text-red-700 border border-red-100",
+      "neutral": "bg-slate-100 text-slate-600 border border-slate-200"
+    }
+  },
+  "assets": {
+    "images": {
+      "doctor_portrait": "https://images.unsplash.com/photo-1615177393114-bd2917a4f74a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwyfHxkb2N0b3IlMjBwcm9mZXNzaW9uYWwlMjBwb3J0cmFpdHxlbnwwfHx8fDE3Njk0NTYwMDl8MA&ixlib=rb-4.1.0&q=85",
+      "medical_team": "https://images.unsplash.com/photo-1755189118414-14c8dacdb082?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHxkb2N0b3IlMjBwcm9mZXNzaW9uYWwlMjBwb3J0cmFpdHxlbnwwfHx8fDE3Njk0NTYwMDl8MA&ixlib=rb-4.1.0&q=85",
+      "clinic_interior": "https://images.pexels.com/photos/16571739/pexels-photo-16571739.jpeg",
+      "abstract_tech": "https://images.unsplash.com/photo-1759270463226-c5e04a4542c1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODh8MHwxfHNlYXJjaHwyfHxtZWRpY2FsJTIwdGVjaG5vbG9neSUyMGFic3RyYWN0JTIwYmx1ZXxlbnwwfHx8fDE3Njk0NTYwMTR8MA&ixlib=rb-4.1.0&q=85"
+    },
+    "icons": {
+      "library": "lucide-react",
+      "style": "stroke-width-1.5"
+    }
+  },
+  "universal_guidelines": [
+    "Avoid generic 'Bootstrap' layouts. Use asymmetry and whitespace.",
+    "Do not use full-screen gradients. Use subtle mesh gradients or solid colors.",
+    "Ensure high contrast for all text (WCAG AA minimum).",
+    "Use 'sonner' for all toast notifications.",
+    "All interactive elements must have hover and focus states.",
+    "Use 'data-testid' for all interactive elements.",
+    "Do not use 'transition: all'. Animate specific properties.",
+    "Use 'Manrope' for headings to give a modern, medical-tech feel.",
+    "Glassmorphism should be subtle (white/70), not heavy blur.",
+    "Shadows should be colored (e.g., shadow-sky-500/10) not just black."
+  ],
+  "instructions_to_main_agent": "You are building a high-end medical dashboard. Use the provided colors and fonts. Implement the 'Clinical Glass' aesthetic by using the glass utility classes defined in the colors section for sticky headers and overlays. Keep the main content area clean and high-contrast. Use the provided image URLs for placeholders. Ensure all components are responsive and mobile-first."
+}
