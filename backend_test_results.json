@@ -1,0 +1,93 @@
+{
+  "timestamp": "2026-01-26T19:43:54.181857",
+  "total_tests": 12,
+  "passed_tests": 2,
+  "failed_tests": 10,
+  "success_rate": 16.666666666666664,
+  "test_details": [
+    {
+      "test": "Root Endpoint",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Health Check",
+      "success": true,
+      "details": "",
+      "expected_status": null,
+      "actual_status": null
+    },
+    {
+      "test": "Admin Registration",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 200,
+      "actual_status": 520
+    },
+    {
+      "test": "WhatsApp Webhook",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 200,
+      "actual_status": 520
+    },
+    {
+      "test": "WhatsApp Webhook (No Auth)",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 200,
+      "actual_status": 520
+    },
+    {
+      "test": "Protected Route: dashboard/stats",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 401,
+      "actual_status": 403
+    },
+    {
+      "test": "Protected Route: patients",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 401,
+      "actual_status": 403
+    },
+    {
+      "test": "Protected Route: appointments",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 401,
+      "actual_status": 403
+    },
+    {
+      "test": "Protected Route: availability",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 401,
+      "actual_status": 403
+    },
+    {
+      "test": "Protected Route: conversations",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 401,
+      "actual_status": 403
+    },
+    {
+      "test": "Protected Route: alerts",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 401,
+      "actual_status": 403
+    },
+    {
+      "test": "Protected Route: auth/me",
+      "success": false,
+      "details": "Status code mismatch",
+      "expected_status": 401,
+      "actual_status": 403
+    }
+  ]
+}
