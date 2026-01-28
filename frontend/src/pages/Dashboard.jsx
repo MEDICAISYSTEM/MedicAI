@@ -1,7 +1,18 @@
 import { useState, useEffect } from "react";
-import { getDashboardStats, getAppointments, getAlerts } from "../lib/api";
+import { getDashboardStats, getAppointments, getAlerts, createConsultationNote } from "../lib/api";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Label } from "../components/ui/label";
+import { Textarea } from "../components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "../components/ui/dialog";
 import { 
   Users, 
   Calendar, 
@@ -12,7 +23,9 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
-  CalendarDays
+  CalendarDays,
+  FileText,
+  Stethoscope
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -22,6 +35,17 @@ export default function Dashboard() {
   const [todayAppointments, setTodayAppointments] = useState([]);
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Consultation note modal
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [consultationNote, setConsultationNote] = useState({
+    symptoms: "",
+    diagnosis: "",
+    treatment: "",
+    observations: ""
+  });
 
   useEffect(() => {
     fetchData();
@@ -37,7 +61,6 @@ export default function Dashboard() {
       ]);
       
       setStats(statsRes.data);
-      // Sort appointments by time for the daily schedule
       const sortedAppointments = appointmentsRes.data.sort((a, b) => 
         a.time.localeCompare(b.time)
       );
@@ -50,12 +73,45 @@ export default function Dashboard() {
     }
   };
 
+  const handleOpenNoteDialog = (appointment) => {
+    setSelectedAppointment(appointment);
+    setConsultationNote({
+      symptoms: "",
+      diagnosis: "",
+      treatment: "",
+      observations: ""
+    });
+    setNoteDialogOpen(true);
+  };
+
+  const handleSaveConsultationNote = async () => {
+    if (!consultationNote.symptoms && !consultationNote.diagnosis && !consultationNote.treatment && !consultationNote.observations) {
+      toast.error("Agrega al menos un campo a la nota");
+      return;
+    }
+    
+    setSavingNote(true);
+    try {
+      await createConsultationNote(selectedAppointment.patient_id, {
+        ...consultationNote,
+        patient_id: selectedAppointment.patient_id,
+        appointment_id: selectedAppointment.id,
+        date: selectedAppointment.date
+      });
+      toast.success("Nota de consulta guardada exitosamente");
+      setNoteDialogOpen(false);
+    } catch (error) {
+      toast.error("Error al guardar la nota");
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
   const statCards = [
     {
       title: "Pacientes Totales",
       value: stats?.total_patients || 0,
       icon: Users,
-      color: "sky",
       bgColor: "bg-sky-50",
       iconColor: "text-sky-500",
     },
@@ -63,7 +119,6 @@ export default function Dashboard() {
       title: "Citas Hoy",
       value: stats?.total_appointments_today || 0,
       icon: Calendar,
-      color: "emerald",
       bgColor: "bg-emerald-50",
       iconColor: "text-emerald-500",
     },
@@ -71,7 +126,6 @@ export default function Dashboard() {
       title: "Citas Esta Semana",
       value: stats?.total_appointments_week || 0,
       icon: CalendarCheck,
-      color: "violet",
       bgColor: "bg-violet-50",
       iconColor: "text-violet-500",
     },
@@ -79,7 +133,6 @@ export default function Dashboard() {
       title: "Alertas Pendientes",
       value: stats?.pending_alerts || 0,
       icon: AlertTriangle,
-      color: "amber",
       bgColor: "bg-amber-50",
       iconColor: "text-amber-500",
     },
@@ -193,14 +246,14 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Two Column Layout - Appointments and Alerts */}
+      {/* Quick View Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Today's Appointments */}
+        {/* Today's Appointments Quick View */}
         <Card className="stat-card" data-testid="today-appointments-card">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
               <Clock className="w-5 h-5 text-sky-500" />
-              Citas de Hoy
+              Próximas Citas
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -211,11 +264,10 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-3">
-                {todayAppointments.slice(0, 5).map((apt) => (
+                {todayAppointments.slice(0, 4).map((apt) => (
                   <div 
                     key={apt.id} 
                     className="flex items-center justify-between p-3 bg-slate-50 rounded-xl"
-                    data-testid={`appointment-${apt.id}`}
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center">
@@ -259,7 +311,6 @@ export default function Dashboard() {
                   <div 
                     key={alert.id} 
                     className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-100 rounded-xl"
-                    data-testid={`alert-${alert.id}`}
                   >
                     <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
                       <AlertTriangle className="w-4 h-4 text-amber-600" />
@@ -291,6 +342,9 @@ export default function Dashboard() {
             <CalendarDays className="w-5 h-5 text-violet-500" />
             Agenda del Día - {format(new Date(), "EEEE d 'de' MMMM", { locale: es })}
           </CardTitle>
+          <p className="text-sm text-slate-500 mt-1">
+            Haz clic en una cita para registrar la nota de consulta
+          </p>
         </CardHeader>
         <CardContent>
           {todayAppointments.length === 0 ? (
@@ -309,15 +363,17 @@ export default function Dashboard() {
                     <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Motivo</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Teléfono</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {todayAppointments.map((apt, index) => (
+                  {todayAppointments.map((apt) => (
                     <tr 
                       key={apt.id} 
-                      className={`hover:bg-slate-50 transition-colors ${
+                      className={`hover:bg-sky-50/50 transition-colors cursor-pointer ${
                         apt.priority === 'high' ? 'bg-red-50/50' : ''
                       }`}
+                      onClick={() => apt.status === 'confirmed' && handleOpenNoteDialog(apt)}
                       data-testid={`schedule-row-${apt.id}`}
                     >
                       <td className="py-4 px-4">
@@ -352,6 +408,23 @@ export default function Dashboard() {
                           <Badge className="badge-error ml-2 text-xs">Urgente</Badge>
                         )}
                       </td>
+                      <td className="py-4 px-4">
+                        {apt.status === 'confirmed' && (
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            className="text-sky-600 border-sky-200 hover:bg-sky-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenNoteDialog(apt);
+                            }}
+                            data-testid={`note-btn-${apt.id}`}
+                          >
+                            <Stethoscope className="w-3 h-3 mr-1" />
+                            Nota
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -360,6 +433,109 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* Consultation Note Dialog */}
+      <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Stethoscope className="w-5 h-5 text-sky-500" />
+              Nota de Consulta
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedAppointment && (
+            <div className="space-y-4">
+              {/* Patient Info */}
+              <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl">
+                <div className="w-12 h-12 bg-sky-100 rounded-full flex items-center justify-center">
+                  <span className="text-sky-600 font-bold">
+                    {selectedAppointment.patient_name?.charAt(0)?.toUpperCase() || '?'}
+                  </span>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900">{selectedAppointment.patient_name || 'Sin nombre'}</h3>
+                  <p className="text-sm text-slate-500">
+                    {format(parseISO(selectedAppointment.date), "EEEE d 'de' MMMM, yyyy", { locale: es })} - {selectedAppointment.time}
+                  </p>
+                  <p className="text-sm text-slate-500">Motivo: {selectedAppointment.reason}</p>
+                </div>
+              </div>
+              
+              {/* Note Form */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Síntomas</Label>
+                  <Textarea
+                    value={consultationNote.symptoms}
+                    onChange={(e) => setConsultationNote({ ...consultationNote, symptoms: e.target.value })}
+                    placeholder="Describe los síntomas que presenta el paciente..."
+                    className="input-base min-h-[100px]"
+                    data-testid="note-symptoms"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Diagnóstico</Label>
+                  <Textarea
+                    value={consultationNote.diagnosis}
+                    onChange={(e) => setConsultationNote({ ...consultationNote, diagnosis: e.target.value })}
+                    placeholder="Diagnóstico médico..."
+                    className="input-base min-h-[100px]"
+                    data-testid="note-diagnosis"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Tratamiento</Label>
+                  <Textarea
+                    value={consultationNote.treatment}
+                    onChange={(e) => setConsultationNote({ ...consultationNote, treatment: e.target.value })}
+                    placeholder="Tratamiento indicado, medicamentos, dosis..."
+                    className="input-base min-h-[100px]"
+                    data-testid="note-treatment"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Observaciones</Label>
+                  <Textarea
+                    value={consultationNote.observations}
+                    onChange={(e) => setConsultationNote({ ...consultationNote, observations: e.target.value })}
+                    placeholder="Observaciones adicionales, seguimiento..."
+                    className="input-base min-h-[100px]"
+                    data-testid="note-observations"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleSaveConsultationNote} 
+              className="btn-primary"
+              disabled={savingNote}
+              data-testid="save-note-btn"
+            >
+              {savingNote ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <FileText className="w-4 h-4 mr-2" />
+                  Guardar Nota
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
