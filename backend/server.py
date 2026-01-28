@@ -1097,26 +1097,26 @@ async def whatsapp_webhook(message: WebhookMessage):
         content = message.message
         timestamp = message.timestamp or datetime.now(timezone.utc).isoformat()
         
-        # Check if message starts with a clinic code (for new patients)
+        # Check if message contains a clinic code (format: #CODIGO)
         clinic_id = None
         clinic = None
-        content_upper = content.upper().strip()
         
-        # Try to find clinic by code at the start of message
-        clinic_code_match = re.match(r'^([A-Z0-9]{3,10})\b', content_upper)
+        # Try to find clinic code with # prefix anywhere in the message
+        clinic_code_match = re.search(r'#([A-Z0-9]{3,10})\b', content.upper())
         if clinic_code_match:
             potential_code = clinic_code_match.group(1)
             clinic_result = supabase.table("clinics").select("*").eq("code", potential_code).eq("is_active", True).execute()
             if clinic_result.data:
                 clinic = clinic_result.data[0]
                 clinic_id = clinic["id"]
-                # Remove clinic code from message
-                content = content[len(potential_code):].strip()
+                # Remove the code from message for natural conversation
+                content = re.sub(r'#[A-Za-z0-9]{3,10}\b', '', content).strip()
                 if not content:
-                    # Just the code, send welcome message
+                    # Just the code/greeting, send personalized welcome message
+                    welcome = clinic.get("welcome_message") or f"¡Hola! Soy el asistente del {clinic['name']}. ¿En qué puedo ayudarte hoy?"
                     return {
                         "success": True,
-                        "response": clinic.get("welcome_message") or f"¡Hola! Soy el asistente del {clinic['name']}. ¿En qué puedo ayudarte hoy?",
+                        "response": welcome,
                         "intent": "greeting",
                         "clinic_id": clinic_id,
                         "phone": phone
