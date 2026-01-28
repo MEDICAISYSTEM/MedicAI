@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { getDashboardStats, getAppointments, getAlerts, createConsultationNote } from "../lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -25,7 +25,9 @@ import {
   Loader2,
   CalendarDays,
   FileText,
-  Stethoscope
+  Stethoscope,
+  Bell,
+  RefreshCw
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -35,6 +37,8 @@ export default function Dashboard() {
   const [todayAppointments, setTodayAppointments] = useState([]);
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const wsRef = useRef(null);
   
   // Consultation note modal
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
@@ -47,11 +51,8 @@ export default function Dashboard() {
     observations: ""
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (showRefresh = false) => {
+    if (showRefresh) setRefreshing(true);
     try {
       const today = format(new Date(), "yyyy-MM-dd");
       const [statsRes, appointmentsRes, alertsRes] = await Promise.all([
@@ -70,8 +71,79 @@ export default function Dashboard() {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, []);
+
+  // WebSocket connection for real-time notifications
+  useEffect(() => {
+    const connectWebSocket = () => {
+      const wsUrl = process.env.REACT_APP_BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+      const ws = new WebSocket(`${wsUrl}/ws/notifications`);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          
+          if (message.type === 'new_appointment') {
+            const apt = message.data;
+            // Show toast notification
+            toast.success(
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Bell className="w-4 h-4" />
+                  Nueva cita agendada
+                </div>
+                <p className="text-sm">{apt.patient_name}</p>
+                <p className="text-xs text-slate-500">
+                  {apt.date} a las {apt.time} - {apt.reason}
+                </p>
+              </div>,
+              {
+                duration: 10000,
+                action: {
+                  label: "Ver",
+                  onClick: () => fetchData(true)
+                }
+              }
+            );
+            
+            // Auto-refresh data
+            fetchData(true);
+          }
+        } catch (e) {
+          console.error('WebSocket message error:', e);
+        }
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket disconnected, reconnecting in 5s...');
+        setTimeout(connectWebSocket, 5000);
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+      
+      wsRef.current = ws;
+    };
+    
+    connectWebSocket();
+    
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [fetchData]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleOpenNoteDialog = (appointment) => {
     setSelectedAppointment(appointment);
@@ -109,32 +181,46 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      title: "Pacientes Totales",
+      title: "Pacientes",
       value: stats?.total_patients || 0,
       icon: Users,
       bgColor: "bg-sky-50",
       iconColor: "text-sky-500",
     },
     {
-      title: "Citas Hoy",
+      title: "Hoy",
       value: stats?.total_appointments_today || 0,
       icon: Calendar,
       bgColor: "bg-emerald-50",
       iconColor: "text-emerald-500",
     },
     {
-      title: "Citas Esta Semana",
+      title: "Semana",
       value: stats?.total_appointments_week || 0,
       icon: CalendarCheck,
       bgColor: "bg-violet-50",
       iconColor: "text-violet-500",
     },
     {
-      title: "Alertas Pendientes",
+      title: "Alertas",
       value: stats?.pending_alerts || 0,
       icon: AlertTriangle,
       bgColor: "bg-amber-50",
       iconColor: "text-amber-500",
+    },
+    {
+      title: "Confirmadas",
+      value: stats?.confirmed_appointments || 0,
+      icon: CheckCircle,
+      bgColor: "bg-emerald-50",
+      iconColor: "text-emerald-500",
+    },
+    {
+      title: "Canceladas",
+      value: stats?.cancelled_appointments || 0,
+      icon: XCircle,
+      bgColor: "bg-red-50",
+      iconColor: "text-red-500",
     },
   ];
 
@@ -160,36 +246,47 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-8 animate-fade-in" data-testid="dashboard-page">
+    <div className="space-y-6 animate-fade-in" data-testid="dashboard-page">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>
-          Dashboard
-        </h1>
-        <p className="text-slate-500 mt-1">
-          Resumen de tu clínica - {format(new Date(), "EEEE, d 'de' MMMM", { locale: es })}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>
+            Dashboard
+          </h1>
+          <p className="text-slate-500 text-sm">
+            {format(new Date(), "EEEE, d 'de' MMMM", { locale: es })}
+          </p>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => fetchData(true)}
+          disabled={refreshing}
+          className="gap-2"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Actualizar
+        </Button>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Compact Stats Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {statCards.map((stat, index) => (
           <Card 
             key={stat.title} 
-            className="stat-card animate-slide-up"
-            style={{ animationDelay: `${index * 0.1}s` }}
+            className="stat-card"
             data-testid={`stat-card-${index}`}
           >
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 ${stat.bgColor} rounded-lg flex items-center justify-center flex-shrink-0`}>
+                  <stat.icon className={`w-4 h-4 ${stat.iconColor}`} />
+                </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500">{stat.title}</p>
-                  <p className="text-3xl font-bold text-slate-900 mt-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
+                  <p className="text-xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>
                     {stat.value}
                   </p>
-                </div>
-                <div className={`w-12 h-12 ${stat.bgColor} rounded-xl flex items-center justify-center`}>
-                  <stat.icon className={`w-6 h-6 ${stat.iconColor}`} />
+                  <p className="text-xs text-slate-500">{stat.title}</p>
                 </div>
               </div>
             </CardContent>
@@ -197,91 +294,42 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="stat-card">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-emerald-500" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-500">Confirmadas</p>
-                <p className="text-2xl font-bold text-slate-900">{stats?.confirmed_appointments || 0}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card className="stat-card">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center">
-                <XCircle className="w-6 h-6 text-red-500" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-500">Canceladas</p>
-                <p className="text-2xl font-bold text-slate-900">{stats?.cancelled_appointments || 0}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="stat-card">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-sky-50 rounded-xl flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-sky-500" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-500">Tasa de Confirmación</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {stats?.confirmed_appointments && stats?.total_appointments_week
-                    ? Math.round((stats.confirmed_appointments / stats.total_appointments_week) * 100)
-                    : 0}%
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Quick View Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Today's Appointments Quick View */}
         <Card className="stat-card" data-testid="today-appointments-card">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-              <Clock className="w-5 h-5 text-sky-500" />
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <Clock className="w-4 h-4 text-sky-500" />
               Próximas Citas
             </CardTitle>
           </CardHeader>
           <CardContent>
             {todayAppointments.length === 0 ? (
-              <div className="text-center py-8 text-slate-500">
-                <Calendar className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                <p>No hay citas programadas para hoy</p>
+              <div className="text-center py-6 text-slate-500">
+                <Calendar className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                <p className="text-sm">Sin citas para hoy</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {todayAppointments.slice(0, 4).map((apt) => (
                   <div 
                     key={apt.id} 
-                    className="flex items-center justify-between p-3 bg-slate-50 rounded-xl"
+                    className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center">
-                        <span className="text-sky-600 font-semibold text-sm">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 bg-sky-100 rounded-full flex items-center justify-center">
+                        <span className="text-sky-600 font-semibold text-xs">
                           {apt.patient_name?.charAt(0)?.toUpperCase() || '?'}
                         </span>
                       </div>
                       <div>
-                        <p className="font-medium text-slate-900">{apt.patient_name || 'Sin nombre'}</p>
-                        <p className="text-sm text-slate-500">{apt.reason}</p>
+                        <p className="font-medium text-slate-900 text-sm">{apt.patient_name || 'Sin nombre'}</p>
+                        <p className="text-xs text-slate-500">{apt.reason}</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-medium text-slate-900">{apt.time}</p>
+                      <p className="font-semibold text-slate-900 text-sm">{apt.time}</p>
                       {getStatusBadge(apt.status)}
                     </div>
                   </div>
@@ -293,39 +341,36 @@ export default function Dashboard() {
 
         {/* Recent Alerts */}
         <Card className="stat-card" data-testid="recent-alerts-card">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-              <AlertTriangle className="w-5 h-5 text-amber-500" />
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
               Alertas Recientes
             </CardTitle>
           </CardHeader>
           <CardContent>
             {recentAlerts.length === 0 ? (
-              <div className="text-center py-8 text-slate-500">
-                <CheckCircle className="w-12 h-12 mx-auto mb-3 text-emerald-300" />
-                <p>No hay alertas pendientes</p>
+              <div className="text-center py-6 text-slate-500">
+                <CheckCircle className="w-10 h-10 mx-auto mb-2 text-emerald-300" />
+                <p className="text-sm">Sin alertas pendientes</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {recentAlerts.map((alert) => (
                   <div 
                     key={alert.id} 
-                    className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-100 rounded-xl"
+                    className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-100 rounded-lg"
                   >
-                    <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <div className="w-7 h-7 bg-amber-100 rounded flex items-center justify-center flex-shrink-0">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium text-slate-900">{alert.patient_name || alert.patient_phone}</p>
-                        <Badge className={alert.priority === 'high' ? 'badge-error' : 'badge-warning'}>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="font-medium text-slate-900 text-sm">{alert.patient_name || alert.patient_phone}</p>
+                        <Badge className={`text-[10px] ${alert.priority === 'high' ? 'badge-error' : 'badge-warning'}`}>
                           {alert.priority === 'high' ? 'Alta' : 'Normal'}
                         </Badge>
                       </div>
-                      <p className="text-sm text-slate-600 truncate">{alert.message}</p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        {format(parseISO(alert.created_at), "d MMM, HH:mm", { locale: es })}
-                      </p>
+                      <p className="text-xs text-slate-600 truncate">{alert.message}</p>
                     </div>
                   </div>
                 ))}
@@ -337,20 +382,22 @@ export default function Dashboard() {
 
       {/* Daily Schedule Table */}
       <Card className="stat-card" data-testid="daily-schedule-card">
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-            <CalendarDays className="w-5 h-5 text-violet-500" />
-            Agenda del Día - {format(new Date(), "EEEE d 'de' MMMM", { locale: es })}
-          </CardTitle>
-          <p className="text-sm text-slate-500 mt-1">
-            Haz clic en una cita para registrar la nota de consulta
-          </p>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <CalendarDays className="w-4 h-4 text-violet-500" />
+              Agenda del Día
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Clic en "Nota" para registrar consulta
+            </p>
+          </div>
         </CardHeader>
         <CardContent>
           {todayAppointments.length === 0 ? (
-            <div className="text-center py-12 text-slate-500">
-              <CalendarDays className="w-16 h-16 mx-auto mb-4 text-slate-300" />
-              <p className="text-lg font-medium">Sin citas programadas</p>
+            <div className="text-center py-10 text-slate-500">
+              <CalendarDays className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+              <p className="font-medium">Sin citas programadas</p>
               <p className="text-sm">Tu agenda está libre para hoy</p>
             </div>
           ) : (
@@ -358,66 +405,59 @@ export default function Dashboard() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-200">
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Hora</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Paciente</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Motivo</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Teléfono</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Acción</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-20">Hora</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Paciente</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Motivo</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Teléfono</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
+                    <th className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-20">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {todayAppointments.map((apt) => (
                     <tr 
                       key={apt.id} 
-                      className={`hover:bg-sky-50/50 transition-colors cursor-pointer ${
+                      className={`hover:bg-sky-50/50 transition-colors ${
                         apt.priority === 'high' ? 'bg-red-50/50' : ''
                       }`}
-                      onClick={() => apt.status === 'confirmed' && handleOpenNoteDialog(apt)}
                       data-testid={`schedule-row-${apt.id}`}
                     >
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className={`w-1.5 h-1.5 rounded-full ${
                             apt.status === 'confirmed' ? 'bg-emerald-500' :
                             apt.status === 'cancelled' ? 'bg-red-500' :
                             'bg-amber-500'
                           }`}></div>
-                          <span className="font-semibold text-slate-900">{apt.time}</span>
+                          <span className="font-semibold text-slate-900 text-sm">{apt.time}</span>
                         </div>
                       </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-sky-100 rounded-full flex items-center justify-center">
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 bg-sky-100 rounded-full flex items-center justify-center">
                             <span className="text-sky-600 font-semibold text-xs">
                               {apt.patient_name?.charAt(0)?.toUpperCase() || '?'}
                             </span>
                           </div>
-                          <span className="font-medium text-slate-900">{apt.patient_name || 'Sin nombre'}</span>
+                          <span className="font-medium text-slate-900 text-sm">{apt.patient_name || 'Sin nombre'}</span>
                         </div>
                       </td>
-                      <td className="py-4 px-4">
-                        <span className="text-slate-600">{apt.reason}</span>
+                      <td className="py-3 px-3">
+                        <span className="text-slate-600 text-sm">{apt.reason}</span>
                       </td>
-                      <td className="py-4 px-4">
-                        <span className="text-slate-500 text-sm">{apt.patient_phone || '-'}</span>
+                      <td className="py-3 px-3 hidden sm:table-cell">
+                        <span className="text-slate-500 text-xs">{apt.patient_phone || '-'}</span>
                       </td>
-                      <td className="py-4 px-4">
+                      <td className="py-3 px-3">
                         {getStatusBadge(apt.status)}
-                        {apt.priority === 'high' && (
-                          <Badge className="badge-error ml-2 text-xs">Urgente</Badge>
-                        )}
                       </td>
-                      <td className="py-4 px-4">
+                      <td className="py-3 px-3">
                         {apt.status === 'confirmed' && (
                           <Button 
                             size="sm" 
                             variant="outline"
-                            className="text-sky-600 border-sky-200 hover:bg-sky-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenNoteDialog(apt);
-                            }}
+                            className="h-7 text-xs text-sky-600 border-sky-200 hover:bg-sky-50 px-2"
+                            onClick={() => handleOpenNoteDialog(apt)}
                             data-testid={`note-btn-${apt.id}`}
                           >
                             <Stethoscope className="w-3 h-3 mr-1" />
@@ -447,63 +487,62 @@ export default function Dashboard() {
           {selectedAppointment && (
             <div className="space-y-4">
               {/* Patient Info */}
-              <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl">
-                <div className="w-12 h-12 bg-sky-100 rounded-full flex items-center justify-center">
-                  <span className="text-sky-600 font-bold">
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                <div className="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center">
+                  <span className="text-sky-600 font-bold text-sm">
                     {selectedAppointment.patient_name?.charAt(0)?.toUpperCase() || '?'}
                   </span>
                 </div>
                 <div>
                   <h3 className="font-semibold text-slate-900">{selectedAppointment.patient_name || 'Sin nombre'}</h3>
-                  <p className="text-sm text-slate-500">
-                    {format(parseISO(selectedAppointment.date), "EEEE d 'de' MMMM, yyyy", { locale: es })} - {selectedAppointment.time}
+                  <p className="text-xs text-slate-500">
+                    {format(parseISO(selectedAppointment.date), "d MMM yyyy", { locale: es })} • {selectedAppointment.time} • {selectedAppointment.reason}
                   </p>
-                  <p className="text-sm text-slate-500">Motivo: {selectedAppointment.reason}</p>
                 </div>
               </div>
               
               {/* Note Form */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Síntomas</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Síntomas</Label>
                   <Textarea
                     value={consultationNote.symptoms}
                     onChange={(e) => setConsultationNote({ ...consultationNote, symptoms: e.target.value })}
-                    placeholder="Describe los síntomas que presenta el paciente..."
-                    className="input-base min-h-[100px]"
+                    placeholder="Síntomas del paciente..."
+                    className="input-base min-h-[90px] text-sm"
                     data-testid="note-symptoms"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label>Diagnóstico</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Diagnóstico</Label>
                   <Textarea
                     value={consultationNote.diagnosis}
                     onChange={(e) => setConsultationNote({ ...consultationNote, diagnosis: e.target.value })}
                     placeholder="Diagnóstico médico..."
-                    className="input-base min-h-[100px]"
+                    className="input-base min-h-[90px] text-sm"
                     data-testid="note-diagnosis"
                   />
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Tratamiento</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Tratamiento</Label>
                   <Textarea
                     value={consultationNote.treatment}
                     onChange={(e) => setConsultationNote({ ...consultationNote, treatment: e.target.value })}
-                    placeholder="Tratamiento indicado, medicamentos, dosis..."
-                    className="input-base min-h-[100px]"
+                    placeholder="Tratamiento, medicamentos..."
+                    className="input-base min-h-[90px] text-sm"
                     data-testid="note-treatment"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label>Observaciones</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Observaciones</Label>
                   <Textarea
                     value={consultationNote.observations}
                     onChange={(e) => setConsultationNote({ ...consultationNote, observations: e.target.value })}
-                    placeholder="Observaciones adicionales, seguimiento..."
-                    className="input-base min-h-[100px]"
+                    placeholder="Observaciones, seguimiento..."
+                    className="input-base min-h-[90px] text-sm"
                     data-testid="note-observations"
                   />
                 </div>
@@ -529,7 +568,7 @@ export default function Dashboard() {
               ) : (
                 <>
                   <FileText className="w-4 h-4 mr-2" />
-                  Guardar Nota
+                  Guardar
                 </>
               )}
             </Button>
