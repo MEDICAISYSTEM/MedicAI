@@ -77,4 +77,14 @@ export const getConversation = (id) => api.get(`/conversations/${id}`);
 export const getAlerts = (params) => api.get("/alerts", { params });
 export const updateAlert = (id, data) => api.put(`/alerts/${id}`, data);
 
+// Super Admin - Clinics
+export const getSuperAdminStats = () => api.get("/superadmin/stats");
+export const getClinics = () => api.get("/superadmin/clinics");
+export const getClinic = (id) => api.get(`/superadmin/clinics/${id}`);
+export const createClinic = (data) => api.post("/superadmin/clinics", data);
+export const updateClinic = (id, data) => api.put(`/superadmin/clinics/${id}`, data);
+export const deleteClinic = (id) => api.delete(`/superadmin/clinics/${id}`);
+export const createClinicAdmin = (clinicId, data) => api.post(`/superadmin/clinics/${clinicId}/create-admin`, data);
+export const getClinicStats = (clinicId) => api.get(`/superadmin/clinics/${clinicId}/stats`);
+
 export default api;
