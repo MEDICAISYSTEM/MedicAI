@@ -452,7 +452,7 @@ async def get_all_clinics(admin: dict = Depends(require_super_admin)):
         
         clinics = []
         for clinic in result.data:
-            clinic["whatsapp_link"] = f"https://wa.me/{WHATSAPP_NUMBER}?text={clinic['code']}"
+            clinic["whatsapp_link"] = generate_whatsapp_link(clinic['code'])
             clinics.append(clinic)
         
         return clinics
