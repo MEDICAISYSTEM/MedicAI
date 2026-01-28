@@ -77,11 +77,63 @@ class AdminCreate(BaseModel):
     email: str
     password: str
     name: str
+    clinic_id: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     admin: dict
+
+# Clinic Models (Multi-tenant)
+class ClinicResponse(BaseModel):
+    id: str
+    code: str
+    name: str
+    clinic_name: Optional[str] = None
+    specialty: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    welcome_message: Optional[str] = None
+    is_active: bool
+    subscription_status: str
+    subscription_start: Optional[str] = None
+    subscription_end: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str
+    whatsapp_link: Optional[str] = None
+
+class ClinicCreate(BaseModel):
+    code: str
+    name: str
+    clinic_name: Optional[str] = None
+    specialty: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    welcome_message: Optional[str] = None
+    notes: Optional[str] = None
+
+class ClinicUpdate(BaseModel):
+    name: Optional[str] = None
+    clinic_name: Optional[str] = None
+    specialty: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    welcome_message: Optional[str] = None
+    is_active: Optional[bool] = None
+    subscription_status: Optional[str] = None
+    subscription_end: Optional[str] = None
+    notes: Optional[str] = None
+
+class SuperAdminStats(BaseModel):
+    total_clinics: int
+    active_clinics: int
+    total_patients: int
+    total_appointments: int
+    appointments_today: int
+    pending_alerts: int
 
 class PatientResponse(BaseModel):
     id: str
