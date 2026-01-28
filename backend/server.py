@@ -333,6 +333,130 @@ async def get_patient(patient_id: str, admin: dict = Depends(get_current_admin))
         logger.error(f"Get patient error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get patient")
 
+@api_router.put("/patients/{patient_id}", response_model=PatientResponse)
+async def update_patient(patient_id: str, update_data: PatientUpdate, admin: dict = Depends(get_current_admin)):
+    """Update patient information"""
+    try:
+        update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+        if not update_dict:
+            raise HTTPException(status_code=400, detail="No update data provided")
+        
+        supabase.table("patients").update(update_dict).eq("id", patient_id).execute()
+        
+        result = supabase.table("patients").select("*").eq("id", patient_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update patient error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update patient")
+
+# ============ MEDICAL RECORDS ENDPOINTS ============
+
+@api_router.get("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
+async def get_medical_record(patient_id: str, admin: dict = Depends(get_current_admin)):
+    """Get patient's medical record"""
+    try:
+        result = supabase.table("medical_records").select("*").eq("patient_id", patient_id).execute()
+        if not result.data:
+            # Create empty record if doesn't exist
+            record_id = str(uuid.uuid4())
+            new_record = {
+                "id": record_id,
+                "patient_id": patient_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            supabase.table("medical_records").insert(new_record).execute()
+            return new_record
+        return result.data[0]
+    except Exception as e:
+        logger.error(f"Get medical record error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get medical record")
+
+@api_router.put("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
+async def update_medical_record(patient_id: str, update_data: MedicalRecordUpdate, admin: dict = Depends(get_current_admin)):
+    """Update patient's medical record"""
+    try:
+        # Check if record exists
+        existing = supabase.table("medical_records").select("id").eq("patient_id", patient_id).execute()
+        
+        update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+        update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+        
+        if not existing.data:
+            # Create new record
+            record_id = str(uuid.uuid4())
+            update_dict["id"] = record_id
+            update_dict["patient_id"] = patient_id
+            update_dict["created_at"] = datetime.now(timezone.utc).isoformat()
+            supabase.table("medical_records").insert(update_dict).execute()
+        else:
+            supabase.table("medical_records").update(update_dict).eq("patient_id", patient_id).execute()
+        
+        result = supabase.table("medical_records").select("*").eq("patient_id", patient_id).execute()
+        return result.data[0]
+    except Exception as e:
+        logger.error(f"Update medical record error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update medical record")
+
+# ============ CONSULTATION NOTES ENDPOINTS ============
+
+@api_router.get("/patients/{patient_id}/consultation-notes", response_model=List[ConsultationNoteResponse])
+async def get_consultation_notes(patient_id: str, admin: dict = Depends(get_current_admin)):
+    """Get patient's consultation notes"""
+    try:
+        result = supabase.table("consultation_notes").select("*").eq("patient_id", patient_id).order("date", desc=True).execute()
+        return result.data
+    except Exception as e:
+        logger.error(f"Get consultation notes error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get consultation notes")
+
+@api_router.post("/patients/{patient_id}/consultation-notes", response_model=ConsultationNoteResponse)
+async def create_consultation_note(patient_id: str, note_data: ConsultationNoteCreate, admin: dict = Depends(get_current_admin)):
+    """Create a consultation note"""
+    try:
+        note_id = str(uuid.uuid4())
+        new_note = {
+            "id": note_id,
+            "patient_id": patient_id,
+            "appointment_id": note_data.appointment_id,
+            "date": note_data.date or datetime.now(timezone.utc).date().isoformat(),
+            "symptoms": note_data.symptoms,
+            "diagnosis": note_data.diagnosis,
+            "treatment": note_data.treatment,
+            "observations": note_data.observations,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": admin["id"]
+        }
+        supabase.table("consultation_notes").insert(new_note).execute()
+        return new_note
+    except Exception as e:
+        logger.error(f"Create consultation note error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create consultation note")
+
+@api_router.put("/consultation-notes/{note_id}", response_model=ConsultationNoteResponse)
+async def update_consultation_note(note_id: str, update_data: ConsultationNoteUpdate, admin: dict = Depends(get_current_admin)):
+    """Update a consultation note"""
+    try:
+        update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+        if not update_dict:
+            raise HTTPException(status_code=400, detail="No update data provided")
+        
+        supabase.table("consultation_notes").update(update_dict).eq("id", note_id).execute()
+        
+        result = supabase.table("consultation_notes").select("*").eq("id", note_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Note not found")
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update consultation note error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update consultation note")
+
 # ============ APPOINTMENTS ENDPOINTS ============
 
 @api_router.get("/appointments", response_model=List[AppointmentResponse])
