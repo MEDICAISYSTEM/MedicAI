@@ -507,7 +507,7 @@ async def create_clinic(clinic_data: ClinicCreate, admin: dict = Depends(require
         
         supabase.table("clinics").insert(new_clinic).execute()
         
-        new_clinic["whatsapp_link"] = f"https://wa.me/{WHATSAPP_NUMBER}?text={new_clinic['code']}"
+        new_clinic["whatsapp_link"] = generate_whatsapp_link(new_clinic['code'])
         return new_clinic
     except HTTPException:
         raise
