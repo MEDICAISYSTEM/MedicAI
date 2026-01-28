@@ -648,6 +648,9 @@ async def whatsapp_webhook(message: WebhookMessage):
             }
             supabase.table("conversations").insert(new_conv).execute()
         
+        # Get conversation history BEFORE saving current message
+        history_result = supabase.table("messages").select("*").eq("conversation_id", conv_id).order("timestamp").limit(20).execute()
+        
         # Save patient message
         patient_msg_id = str(uuid.uuid4())
         patient_message = {
@@ -660,11 +663,8 @@ async def whatsapp_webhook(message: WebhookMessage):
         }
         supabase.table("messages").insert(patient_message).execute()
         
-        # Get conversation history for context
-        history_result = supabase.table("messages").select("*").eq("conversation_id", conv_id).order("timestamp").limit(10).execute()
-        
         # Get availability for context
-        availability_result = supabase.table("availability").select("*").eq("is_available", True).execute()
+        availability_result = supabase.table("availability").select("*").eq("is_available", True).order("day_of_week").execute()
         availability_info = availability_result.data if availability_result.data else []
         
         days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
@@ -673,11 +673,20 @@ async def whatsapp_webhook(message: WebhookMessage):
             for slot in availability_info
         ]) if availability_info else "Horarios no disponibles actualmente."
         
-        # Build conversation history for AI
+        # Build conversation history for AI context
         conversation_history = ""
-        for msg in history_result.data[:-1]:  # Exclude current message
+        for msg in history_result.data:
             role = "Paciente" if msg["sender"] == "patient" else "Asistente"
             conversation_history += f"{role}: {msg['content']}\n"
+        
+        # Add current message
+        conversation_history += f"Paciente: {content}\n"
+        
+        # Get today's date for appointment context
+        from datetime import date
+        today = date.today()
+        today_str = today.strftime("%Y-%m-%d")
+        day_name = days[today.weekday() + 1 if today.weekday() < 6 else 0]
         
         # System prompt for medical AI assistant
         system_prompt = f"""Eres MedicAI, un asistente virtual de una clínica médica. Tu rol es EXCLUSIVAMENTE administrativo.
@@ -688,6 +697,7 @@ REGLAS ESTRICTAS:
 3. Solo puedes ayudar con: agendar citas, consultar precios, informar horarios, y atender urgencias administrativas
 
 INFORMACIÓN DE LA CLÍNICA:
+Fecha actual: {today_str} ({day_name})
 Horarios disponibles:
 {availability_text}
 
@@ -695,37 +705,82 @@ PACIENTE ACTUAL:
 - Nombre: {patient.get('name') or 'No registrado'}
 - Teléfono: {phone}
 
+FLUJO DE CONVERSACIÓN:
+1. Si el paciente no tiene nombre registrado, solicita su nombre amablemente PRIMERO
+2. Para agendar cita: pide fecha, hora y motivo de consulta
+3. Cuando el paciente CONFIRME la cita (diga "sí", "confirmo", "de acuerdo", "ok", "perfecto"), responde EXACTAMENTE con este formato:
+   [CITA_CONFIRMADA]
+   Fecha: YYYY-MM-DD
+   Hora: HH:MM
+   Motivo: (motivo de la cita)
+   Nombre: (nombre del paciente)
+   [/CITA_CONFIRMADA]
+   Y luego un mensaje amable confirmando la cita.
+4. Si detectas una URGENCIA médica (dolor intenso, sangrado, emergencia), responde con [URGENCIA] al inicio.
+5. Si el paciente proporciona su nombre, responde con [NOMBRE: nombre_del_paciente] al inicio.
+
 HISTORIAL DE CONVERSACIÓN:
 {conversation_history}
 
-FLUJO DE CONVERSACIÓN:
-1. Si es paciente nuevo (sin nombre), solicita su nombre amablemente
-2. Identifica la intención: CITA, URGENCIA, PRECIO, o CONSULTA_GENERAL
-3. Si detectas una urgencia médica, indica que contactarás al personal médico inmediatamente
-4. Para citas, ofrece los horarios disponibles y confirma la cita
-5. Siempre sé amable, profesional y empático
-
-RESPONDE EN ESPAÑOL. Sé conciso pero amable."""
+RESPONDE EN ESPAÑOL. Sé conciso pero amable. Recuerda el contexto de la conversación."""
 
         # Process with Gemini AI
         emergent_key = os.environ.get('EMERGENT_LLM_KEY')
         
         chat = LlmChat(
             api_key=emergent_key,
-            session_id=conv_id,
+            session_id=f"{conv_id}_msg_{len(history_result.data)}",
             system_message=system_prompt
         )
         chat.with_model("gemini", "gemini-3-flash-preview")
         
-        user_msg = UserMessage(text=content)
+        user_msg = UserMessage(text=f"Mensaje actual del paciente: {content}")
         ai_response = await chat.send_message(user_msg)
+        
+        # Detect and extract patient name if provided
+        import re
+        name_match = re.search(r'\[NOMBRE:\s*([^\]]+)\]', ai_response)
+        if name_match and not patient.get('name'):
+            new_name = name_match.group(1).strip()
+            supabase.table("patients").update({"name": new_name}).eq("id", patient_id).execute()
+            patient['name'] = new_name
+            ai_response = re.sub(r'\[NOMBRE:[^\]]+\]\s*', '', ai_response)
+        
+        # Detect and create appointment if confirmed
+        appointment_created = False
+        appointment_match = re.search(r'\[CITA_CONFIRMADA\](.*?)\[/CITA_CONFIRMADA\]', ai_response, re.DOTALL)
+        if appointment_match:
+            apt_text = appointment_match.group(1)
+            fecha_match = re.search(r'Fecha:\s*(\d{4}-\d{2}-\d{2})', apt_text)
+            hora_match = re.search(r'Hora:\s*(\d{1,2}:\d{2})', apt_text)
+            motivo_match = re.search(r'Motivo:\s*(.+?)(?:\n|$)', apt_text)
+            
+            if fecha_match and hora_match:
+                apt_id = str(uuid.uuid4())
+                new_appointment = {
+                    "id": apt_id,
+                    "patient_id": patient_id,
+                    "date": fecha_match.group(1),
+                    "time": hora_match.group(1),
+                    "reason": motivo_match.group(1).strip() if motivo_match else "Consulta general",
+                    "status": "confirmed",
+                    "priority": "normal",
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                supabase.table("appointments").insert(new_appointment).execute()
+                appointment_created = True
+                logger.info(f"Appointment created: {apt_id} for patient {patient_id}")
+            
+            # Clean the response to remove the markup
+            ai_response = re.sub(r'\[CITA_CONFIRMADA\].*?\[/CITA_CONFIRMADA\]\s*', '', ai_response, flags=re.DOTALL)
         
         # Detect intent from AI response and original message
         intent = "general"
         content_lower = content.lower()
         
-        if any(word in content_lower for word in ["urgente", "urgencia", "emergencia", "grave", "dolor fuerte", "sangrado"]):
+        if "[URGENCIA]" in ai_response or any(word in content_lower for word in ["urgente", "urgencia", "emergencia", "grave", "dolor fuerte", "sangrado"]):
             intent = "urgency"
+            ai_response = ai_response.replace("[URGENCIA]", "").strip()
             # Create alert for urgent cases
             alert_id = str(uuid.uuid4())
             alert = {
@@ -738,7 +793,7 @@ RESPONDE EN ESPAÑOL. Sé conciso pero amable."""
             }
             supabase.table("alerts").insert(alert).execute()
             
-        elif any(word in content_lower for word in ["cita", "agendar", "consulta", "turno", "hora"]):
+        elif appointment_created or any(word in content_lower for word in ["cita", "agendar", "consulta", "turno", "hora"]):
             intent = "appointment"
         elif any(word in content_lower for word in ["precio", "costo", "cuanto", "valor", "tarifa"]):
             intent = "pricing"
