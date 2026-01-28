@@ -1308,6 +1308,7 @@ RESPONDE EN ESPAÑOL. Sé conciso pero amable. Recuerda el contexto de la conver
                 new_appointment = {
                     "id": apt_id,
                     "patient_id": patient_id,
+                    "clinic_id": clinic_id,
                     "date": fecha_match.group(1),
                     "time": hora_match.group(1),
                     "reason": motivo_match.group(1).strip() if motivo_match else "Consulta general",
@@ -1317,18 +1318,20 @@ RESPONDE EN ESPAÑOL. Sé conciso pero amable. Recuerda el contexto de la conver
                 }
                 supabase.table("appointments").insert(new_appointment).execute()
                 appointment_created = True
-                logger.info(f"Appointment created: {apt_id} for patient {patient_id}")
+                logger.info(f"Appointment created: {apt_id} for patient {patient_id} at clinic {clinic_id}")
                 
                 # Send real-time notification via WebSocket
                 await manager.broadcast({
                     "type": "new_appointment",
+                    "clinic_id": clinic_id,
                     "data": {
                         "id": apt_id,
                         "patient_name": patient.get('name') or 'Paciente nuevo',
                         "patient_phone": phone,
                         "date": fecha_match.group(1),
                         "time": hora_match.group(1),
-                        "reason": motivo_match.group(1).strip() if motivo_match else "Consulta general"
+                        "reason": motivo_match.group(1).strip() if motivo_match else "Consulta general",
+                        "doctor_name": clinic.get('name', 'Doctor')
                     }
                 })
             
@@ -1347,6 +1350,7 @@ RESPONDE EN ESPAÑOL. Sé conciso pero amable. Recuerda el contexto de la conver
             alert = {
                 "id": alert_id,
                 "patient_id": patient_id,
+                "clinic_id": clinic_id,
                 "message": content,
                 "priority": "high",
                 "status": "pending",
