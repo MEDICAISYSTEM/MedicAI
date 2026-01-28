@@ -46,6 +46,16 @@ export const getDashboardStats = () => api.get("/dashboard/stats");
 // Patients
 export const getPatients = () => api.get("/patients");
 export const getPatient = (id) => api.get(`/patients/${id}`);
+export const updatePatient = (id, data) => api.put(`/patients/${id}`, data);
+
+// Medical Records
+export const getMedicalRecord = (patientId) => api.get(`/patients/${patientId}/medical-record`);
+export const updateMedicalRecord = (patientId, data) => api.put(`/patients/${patientId}/medical-record`, data);
+
+// Consultation Notes
+export const getConsultationNotes = (patientId) => api.get(`/patients/${patientId}/consultation-notes`);
+export const createConsultationNote = (patientId, data) => api.post(`/patients/${patientId}/consultation-notes`, data);
+export const updateConsultationNote = (noteId, data) => api.put(`/consultation-notes/${noteId}`, data);
 
 // Appointments
 export const getAppointments = (params) => api.get("/appointments", { params });
