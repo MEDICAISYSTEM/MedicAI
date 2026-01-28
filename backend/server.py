@@ -690,8 +690,16 @@ async def update_patient(patient_id: str, update_data: PatientUpdate, admin: dic
 
 @api_router.get("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
 async def get_medical_record(patient_id: str, admin: dict = Depends(get_current_admin)):
-    """Get patient's medical record"""
+    """Get patient's medical record (verified by clinic ownership)"""
     try:
+        clinic_id = admin.get("clinic_id")
+        
+        # Verify patient belongs to admin's clinic
+        if not admin.get("is_super_admin") and clinic_id:
+            patient_check = supabase.table("patients").select("id").eq("id", patient_id).eq("clinic_id", clinic_id).execute()
+            if not patient_check.data:
+                raise HTTPException(status_code=404, detail="Patient not found")
+        
         result = supabase.table("medical_records").select("*").eq("patient_id", patient_id).execute()
         if not result.data:
             # Create empty record if doesn't exist
@@ -699,20 +707,31 @@ async def get_medical_record(patient_id: str, admin: dict = Depends(get_current_
             new_record = {
                 "id": record_id,
                 "patient_id": patient_id,
+                "clinic_id": clinic_id,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }
             supabase.table("medical_records").insert(new_record).execute()
             return new_record
         return result.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Get medical record error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get medical record")
 
 @api_router.put("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
 async def update_medical_record(patient_id: str, update_data: MedicalRecordUpdate, admin: dict = Depends(get_current_admin)):
-    """Update patient's medical record"""
+    """Update patient's medical record (verified by clinic ownership)"""
     try:
+        clinic_id = admin.get("clinic_id")
+        
+        # Verify patient belongs to admin's clinic
+        if not admin.get("is_super_admin") and clinic_id:
+            patient_check = supabase.table("patients").select("id").eq("id", patient_id).eq("clinic_id", clinic_id).execute()
+            if not patient_check.data:
+                raise HTTPException(status_code=404, detail="Patient not found")
+        
         # Check if record exists
         existing = supabase.table("medical_records").select("id").eq("patient_id", patient_id).execute()
         
@@ -724,6 +743,7 @@ async def update_medical_record(patient_id: str, update_data: MedicalRecordUpdat
             record_id = str(uuid.uuid4())
             update_dict["id"] = record_id
             update_dict["patient_id"] = patient_id
+            update_dict["clinic_id"] = clinic_id
             update_dict["created_at"] = datetime.now(timezone.utc).isoformat()
             supabase.table("medical_records").insert(update_dict).execute()
         else:
@@ -731,6 +751,8 @@ async def update_medical_record(patient_id: str, update_data: MedicalRecordUpdat
         
         result = supabase.table("medical_records").select("*").eq("patient_id", patient_id).execute()
         return result.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Update medical record error: {e}")
         raise HTTPException(status_code=500, detail="Failed to update medical record")
@@ -739,22 +761,41 @@ async def update_medical_record(patient_id: str, update_data: MedicalRecordUpdat
 
 @api_router.get("/patients/{patient_id}/consultation-notes", response_model=List[ConsultationNoteResponse])
 async def get_consultation_notes(patient_id: str, admin: dict = Depends(get_current_admin)):
-    """Get patient's consultation notes"""
+    """Get patient's consultation notes (verified by clinic ownership)"""
     try:
+        clinic_id = admin.get("clinic_id")
+        
+        # Verify patient belongs to admin's clinic
+        if not admin.get("is_super_admin") and clinic_id:
+            patient_check = supabase.table("patients").select("id").eq("id", patient_id).eq("clinic_id", clinic_id).execute()
+            if not patient_check.data:
+                raise HTTPException(status_code=404, detail="Patient not found")
+        
         result = supabase.table("consultation_notes").select("*").eq("patient_id", patient_id).order("date", desc=True).execute()
         return result.data
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Get consultation notes error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get consultation notes")
 
 @api_router.post("/patients/{patient_id}/consultation-notes", response_model=ConsultationNoteResponse)
 async def create_consultation_note(patient_id: str, note_data: ConsultationNoteCreate, admin: dict = Depends(get_current_admin)):
-    """Create a consultation note"""
+    """Create a consultation note (verified by clinic ownership)"""
     try:
+        clinic_id = admin.get("clinic_id")
+        
+        # Verify patient belongs to admin's clinic
+        if not admin.get("is_super_admin") and clinic_id:
+            patient_check = supabase.table("patients").select("id").eq("id", patient_id).eq("clinic_id", clinic_id).execute()
+            if not patient_check.data:
+                raise HTTPException(status_code=404, detail="Patient not found")
+        
         note_id = str(uuid.uuid4())
         new_note = {
             "id": note_id,
             "patient_id": patient_id,
+            "clinic_id": clinic_id,
             "appointment_id": note_data.appointment_id,
             "date": note_data.date or datetime.now(timezone.utc).date().isoformat(),
             "symptoms": note_data.symptoms,
@@ -766,14 +807,26 @@ async def create_consultation_note(patient_id: str, note_data: ConsultationNoteC
         }
         supabase.table("consultation_notes").insert(new_note).execute()
         return new_note
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Create consultation note error: {e}")
         raise HTTPException(status_code=500, detail="Failed to create consultation note")
 
 @api_router.put("/consultation-notes/{note_id}", response_model=ConsultationNoteResponse)
 async def update_consultation_note(note_id: str, update_data: ConsultationNoteUpdate, admin: dict = Depends(get_current_admin)):
-    """Update a consultation note"""
+    """Update a consultation note (verified by clinic ownership)"""
     try:
+        clinic_id = admin.get("clinic_id")
+        
+        # Verify note belongs to admin's clinic
+        verify_query = supabase.table("consultation_notes").select("id").eq("id", note_id)
+        if not admin.get("is_super_admin") and clinic_id:
+            verify_query = verify_query.eq("clinic_id", clinic_id)
+        verify_result = verify_query.execute()
+        if not verify_result.data:
+            raise HTTPException(status_code=404, detail="Note not found")
+        
         update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
         if not update_dict:
             raise HTTPException(status_code=400, detail="No update data provided")
@@ -831,10 +884,19 @@ async def get_appointments(
 async def create_appointment(appointment: AppointmentCreate, admin: dict = Depends(get_current_admin)):
     """Create a new appointment"""
     try:
+        clinic_id = admin.get("clinic_id")
+        
+        # Verify patient belongs to admin's clinic (if not super admin)
+        if not admin.get("is_super_admin") and clinic_id:
+            patient_check = supabase.table("patients").select("id").eq("id", appointment.patient_id).eq("clinic_id", clinic_id).execute()
+            if not patient_check.data:
+                raise HTTPException(status_code=403, detail="Patient does not belong to your clinic")
+        
         apt_id = str(uuid.uuid4())
         new_apt = {
             "id": apt_id,
             "patient_id": appointment.patient_id,
+            "clinic_id": clinic_id,
             "date": appointment.date,
             "time": appointment.time,
             "reason": appointment.reason,
@@ -850,6 +912,8 @@ async def create_appointment(appointment: AppointmentCreate, admin: dict = Depen
         patient = patient_result.data[0] if patient_result.data else {}
         
         return {**new_apt, "patient_name": patient.get("name"), "patient_phone": patient.get("phone")}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Create appointment error: {e}")
         raise HTTPException(status_code=500, detail="Failed to create appointment")
@@ -860,8 +924,16 @@ async def update_appointment(
     update_data: AppointmentUpdate,
     admin: dict = Depends(get_current_admin)
 ):
-    """Update an appointment"""
+    """Update an appointment (verified by clinic ownership)"""
     try:
+        # Verify appointment belongs to admin's clinic
+        verify_query = supabase.table("appointments").select("id").eq("id", appointment_id)
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            verify_query = verify_query.eq("clinic_id", admin["clinic_id"])
+        verify_result = verify_query.execute()
+        if not verify_result.data:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        
         update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
         
         if not update_dict:
@@ -886,10 +958,20 @@ async def update_appointment(
 
 @api_router.delete("/appointments/{appointment_id}")
 async def delete_appointment(appointment_id: str, admin: dict = Depends(get_current_admin)):
-    """Delete an appointment"""
+    """Delete an appointment (verified by clinic ownership)"""
     try:
+        # Verify appointment belongs to admin's clinic
+        verify_query = supabase.table("appointments").select("id").eq("id", appointment_id)
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            verify_query = verify_query.eq("clinic_id", admin["clinic_id"])
+        verify_result = verify_query.execute()
+        if not verify_result.data:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        
         supabase.table("appointments").delete().eq("id", appointment_id).execute()
         return {"message": "Appointment deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Delete appointment error: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete appointment")
@@ -916,9 +998,11 @@ async def get_availability(admin: dict = Depends(get_current_admin)):
 async def create_availability(slot: AvailabilitySlot, admin: dict = Depends(get_current_admin)):
     """Create a new availability slot"""
     try:
+        clinic_id = admin.get("clinic_id")
         slot_id = str(uuid.uuid4())
         new_slot = {
             "id": slot_id,
+            "clinic_id": clinic_id,
             "day_of_week": slot.day_of_week,
             "start_time": slot.start_time,
             "end_time": slot.end_time,
@@ -937,8 +1021,16 @@ async def update_availability(
     slot: AvailabilitySlot,
     admin: dict = Depends(get_current_admin)
 ):
-    """Update an availability slot"""
+    """Update an availability slot (verified by clinic ownership)"""
     try:
+        # Verify slot belongs to admin's clinic
+        verify_query = supabase.table("availability").select("id").eq("id", slot_id)
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            verify_query = verify_query.eq("clinic_id", admin["clinic_id"])
+        verify_result = verify_query.execute()
+        if not verify_result.data:
+            raise HTTPException(status_code=404, detail="Slot not found")
+        
         update_dict = {
             "day_of_week": slot.day_of_week,
             "start_time": slot.start_time,
@@ -961,10 +1053,20 @@ async def update_availability(
 
 @api_router.delete("/availability/{slot_id}")
 async def delete_availability(slot_id: str, admin: dict = Depends(get_current_admin)):
-    """Delete an availability slot"""
+    """Delete an availability slot (verified by clinic ownership)"""
     try:
+        # Verify slot belongs to admin's clinic
+        verify_query = supabase.table("availability").select("id").eq("id", slot_id)
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            verify_query = verify_query.eq("clinic_id", admin["clinic_id"])
+        verify_result = verify_query.execute()
+        if not verify_result.data:
+            raise HTTPException(status_code=404, detail="Slot not found")
+        
         supabase.table("availability").delete().eq("id", slot_id).execute()
         return {"message": "Availability slot deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Delete availability error: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete availability slot")
@@ -999,9 +1101,15 @@ async def get_conversations(admin: dict = Depends(get_current_admin)):
 
 @api_router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 async def get_conversation(conversation_id: str, admin: dict = Depends(get_current_admin)):
-    """Get a specific conversation with messages"""
+    """Get a specific conversation with messages (verified by clinic ownership)"""
     try:
-        conv_result = supabase.table("conversations").select("*, patients(name, phone)").eq("id", conversation_id).execute()
+        query = supabase.table("conversations").select("*, patients(name, phone)").eq("id", conversation_id)
+        
+        # Verify conversation belongs to admin's clinic
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            query = query.eq("clinic_id", admin["clinic_id"])
+        
+        conv_result = query.execute()
         
         if not conv_result.data:
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -1057,8 +1165,16 @@ async def get_alerts(status: Optional[str] = None, admin: dict = Depends(get_cur
 
 @api_router.put("/alerts/{alert_id}", response_model=AlertResponse)
 async def update_alert(alert_id: str, update_data: AlertUpdate, admin: dict = Depends(get_current_admin)):
-    """Update alert status"""
+    """Update alert status (verified by clinic ownership)"""
     try:
+        # Verify alert belongs to admin's clinic
+        verify_query = supabase.table("alerts").select("id").eq("id", alert_id)
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            verify_query = verify_query.eq("clinic_id", admin["clinic_id"])
+        verify_result = verify_query.execute()
+        if not verify_result.data:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        
         supabase.table("alerts").update({"status": update_data.status}).eq("id", alert_id).execute()
         
         result = supabase.table("alerts").select("*, patients(name, phone)").eq("id", alert_id).execute()
