@@ -14,7 +14,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "../components/ui/dialog";
 import {
   Select,
@@ -29,14 +28,13 @@ import {
   Phone,
   Calendar,
   Loader2,
-  Edit2,
   FileText,
   Heart,
   AlertCircle,
   Plus,
   User,
   Droplet,
-  X
+  Save
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -48,16 +46,14 @@ export default function Patients() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Edit patient dialog
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editingPatient, setEditingPatient] = useState(null);
-  
-  // Medical record dialog
+  // Expediente dialog
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [editablePatient, setEditablePatient] = useState(null);
   const [medicalRecord, setMedicalRecord] = useState(null);
   const [consultationNotes, setConsultationNotes] = useState([]);
   const [loadingRecord, setLoadingRecord] = useState(false);
+  const [savingPatient, setSavingPatient] = useState(false);
   
   // New consultation note
   const [newNote, setNewNote] = useState({
@@ -82,27 +78,9 @@ export default function Patients() {
     }
   };
 
-  const handleEditPatient = (patient) => {
-    setEditingPatient({ ...patient });
-    setEditDialogOpen(true);
-  };
-
-  const handleSavePatient = async () => {
-    try {
-      await updatePatient(editingPatient.id, {
-        name: editingPatient.name,
-        phone: editingPatient.phone
-      });
-      toast.success("Paciente actualizado");
-      setEditDialogOpen(false);
-      fetchPatients();
-    } catch (error) {
-      toast.error("Error al actualizar paciente");
-    }
-  };
-
   const handleOpenRecord = async (patient) => {
     setSelectedPatient(patient);
+    setEditablePatient({ ...patient });
     setRecordDialogOpen(true);
     setLoadingRecord(true);
     
@@ -120,10 +98,27 @@ export default function Patients() {
     }
   };
 
+  const handleSavePatientInfo = async () => {
+    setSavingPatient(true);
+    try {
+      await updatePatient(editablePatient.id, {
+        name: editablePatient.name,
+        phone: editablePatient.phone
+      });
+      setSelectedPatient(editablePatient);
+      toast.success("Datos del paciente actualizados");
+      fetchPatients();
+    } catch (error) {
+      toast.error("Error al guardar datos");
+    } finally {
+      setSavingPatient(false);
+    }
+  };
+
   const handleSaveMedicalRecord = async () => {
     try {
       await updateMedicalRecord(selectedPatient.id, medicalRecord);
-      toast.success("Expediente actualizado");
+      toast.success("Expediente médico actualizado");
     } catch (error) {
       toast.error("Error al guardar expediente");
     }
@@ -203,60 +198,33 @@ export default function Patients() {
               {filteredPatients.map((patient) => (
                 <div 
                   key={patient.id} 
-                  className="p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors"
+                  className="p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                  onClick={() => handleOpenRecord(patient)}
                   data-testid={`patient-card-${patient.id}`}
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-sky-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-sky-600 font-semibold">
-                          {patient.name?.charAt(0)?.toUpperCase() || '?'}
-                        </span>
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-slate-900">
-                          {patient.name || 'Sin nombre'}
-                        </h3>
-                        <p className="text-sm text-slate-500 flex items-center gap-1">
-                          <Phone className="w-3 h-3" />
-                          {patient.phone}
-                        </p>
-                      </div>
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-12 h-12 bg-sky-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-sky-600 font-semibold">
+                        {patient.name?.charAt(0)?.toUpperCase() || '?'}
+                      </span>
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-slate-900 truncate">
+                        {patient.name || 'Sin nombre'}
+                      </h3>
+                      <p className="text-sm text-slate-500 flex items-center gap-1">
+                        <Phone className="w-3 h-3" />
+                        {patient.phone}
+                      </p>
+                    </div>
+                    <FileText className="w-5 h-5 text-sky-500 flex-shrink-0" />
                   </div>
                   
-                  <div className="text-xs text-slate-400 mb-3">
+                  <div className="text-xs text-slate-400">
                     <p className="flex items-center gap-1">
                       <Calendar className="w-3 h-3" />
                       Registrado: {format(parseISO(patient.created_at), "d MMM yyyy", { locale: es })}
                     </p>
-                    {patient.last_interaction && (
-                      <p className="mt-1">
-                        Última interacción: {format(parseISO(patient.last_interaction), "d MMM, HH:mm", { locale: es })}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1"
-                      onClick={() => handleEditPatient(patient)}
-                      data-testid={`edit-patient-${patient.id}`}
-                    >
-                      <Edit2 className="w-3 h-3 mr-1" />
-                      Editar
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      className="flex-1 btn-primary"
-                      onClick={() => handleOpenRecord(patient)}
-                      data-testid={`record-patient-${patient.id}`}
-                    >
-                      <FileText className="w-3 h-3 mr-1" />
-                      Expediente
-                    </Button>
                   </div>
                 </div>
               ))}
@@ -265,57 +233,13 @@ export default function Patients() {
         </CardContent>
       </Card>
 
-      {/* Edit Patient Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <User className="w-5 h-5 text-sky-500" />
-              Editar Paciente
-            </DialogTitle>
-          </DialogHeader>
-          {editingPatient && (
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Nombre completo</Label>
-                <Input
-                  value={editingPatient.name || ""}
-                  onChange={(e) => setEditingPatient({ ...editingPatient, name: e.target.value })}
-                  placeholder="Nombre del paciente"
-                  className="input-base"
-                  data-testid="edit-patient-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Teléfono</Label>
-                <Input
-                  value={editingPatient.phone || ""}
-                  onChange={(e) => setEditingPatient({ ...editingPatient, phone: e.target.value })}
-                  placeholder="+52 1 XXX XXX XXXX"
-                  className="input-base"
-                  data-testid="edit-patient-phone"
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSavePatient} className="btn-primary" data-testid="save-patient-btn">
-              Guardar cambios
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Medical Record Dialog */}
+      {/* Expediente Dialog */}
       <Dialog open={recordDialogOpen} onOpenChange={setRecordDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="w-5 h-5 text-sky-500" />
-              Expediente - {selectedPatient?.name || 'Paciente'}
+              Expediente Médico
             </DialogTitle>
           </DialogHeader>
           
@@ -324,112 +248,175 @@ export default function Patients() {
               <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
             </div>
           ) : (
-            <Tabs defaultValue="info" className="flex-1 overflow-hidden flex flex-col">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="info" data-testid="tab-info">
-                  <Heart className="w-4 h-4 mr-2" />
-                  Información Médica
+            <Tabs defaultValue="datos" className="flex-1 overflow-hidden flex flex-col">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="datos" data-testid="tab-datos">
+                  <User className="w-4 h-4 mr-2" />
+                  Datos Personales
                 </TabsTrigger>
-                <TabsTrigger value="notes" data-testid="tab-notes">
+                <TabsTrigger value="medico" data-testid="tab-medico">
+                  <Heart className="w-4 h-4 mr-2" />
+                  Info. Médica
+                </TabsTrigger>
+                <TabsTrigger value="notas" data-testid="tab-notas">
                   <FileText className="w-4 h-4 mr-2" />
-                  Notas de Consulta
+                  Historial Consultas
                 </TabsTrigger>
               </TabsList>
               
-              <TabsContent value="info" className="flex-1 overflow-auto mt-4">
-                <div className="space-y-4">
-                  {/* Blood Type & Emergency Contact */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <Droplet className="w-4 h-4 text-red-500" />
-                        Tipo de sangre
-                      </Label>
-                      <Select 
-                        value={medicalRecord?.blood_type || ""} 
-                        onValueChange={(value) => setMedicalRecord({ ...medicalRecord, blood_type: value })}
+              {/* Tab: Datos Personales */}
+              <TabsContent value="datos" className="flex-1 overflow-auto mt-4">
+                <Card className="border-slate-200">
+                  <CardContent className="p-6 space-y-4">
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="w-16 h-16 bg-sky-100 rounded-full flex items-center justify-center">
+                        <span className="text-sky-600 font-bold text-2xl">
+                          {editablePatient?.name?.charAt(0)?.toUpperCase() || '?'}
+                        </span>
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-semibold text-slate-900">
+                          {editablePatient?.name || 'Sin nombre'}
+                        </h3>
+                        <p className="text-slate-500">{editablePatient?.phone}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Nombre completo</Label>
+                        <Input
+                          value={editablePatient?.name || ""}
+                          onChange={(e) => setEditablePatient({ ...editablePatient, name: e.target.value })}
+                          placeholder="Nombre del paciente"
+                          className="input-base"
+                          data-testid="edit-patient-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Teléfono</Label>
+                        <Input
+                          value={editablePatient?.phone || ""}
+                          onChange={(e) => setEditablePatient({ ...editablePatient, phone: e.target.value })}
+                          placeholder="+52 1 XXX XXX XXXX"
+                          className="input-base"
+                          data-testid="edit-patient-phone"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Contacto de emergencia</Label>
+                        <Input
+                          value={medicalRecord?.emergency_contact || ""}
+                          onChange={(e) => setMedicalRecord({ ...medicalRecord, emergency_contact: e.target.value })}
+                          placeholder="Nombre del contacto"
+                          className="input-base"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Teléfono de emergencia</Label>
+                        <Input
+                          value={medicalRecord?.emergency_phone || ""}
+                          onChange={(e) => setMedicalRecord({ ...medicalRecord, emergency_phone: e.target.value })}
+                          placeholder="+52 1 XXX XXX XXXX"
+                          className="input-base"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-3 pt-4">
+                      <Button 
+                        onClick={handleSavePatientInfo} 
+                        className="btn-primary"
+                        disabled={savingPatient}
+                        data-testid="save-patient-btn"
                       >
-                        <SelectTrigger data-testid="blood-type-select">
-                          <SelectValue placeholder="Seleccionar" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {BLOOD_TYPES.map((type) => (
-                            <SelectItem key={type} value={type}>{type}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        {savingPatient ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                        Guardar datos personales
+                      </Button>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Contacto de emergencia</Label>
-                      <Input
-                        value={medicalRecord?.emergency_contact || ""}
-                        onChange={(e) => setMedicalRecord({ ...medicalRecord, emergency_contact: e.target.value })}
-                        placeholder="Nombre del contacto"
-                        className="input-base"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>Teléfono de emergencia</Label>
-                    <Input
-                      value={medicalRecord?.emergency_phone || ""}
-                      onChange={(e) => setMedicalRecord({ ...medicalRecord, emergency_phone: e.target.value })}
-                      placeholder="+52 1 XXX XXX XXXX"
-                      className="input-base"
-                    />
-                  </div>
-                  
-                  {/* Allergies */}
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-500" />
-                      Alergias
-                    </Label>
-                    <Textarea
-                      value={medicalRecord?.allergies || ""}
-                      onChange={(e) => setMedicalRecord({ ...medicalRecord, allergies: e.target.value })}
-                      placeholder="Ej: Penicilina, mariscos, látex..."
-                      className="input-base min-h-[80px]"
-                      data-testid="allergies-input"
-                    />
-                  </div>
-                  
-                  {/* Pathologies */}
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Heart className="w-4 h-4 text-red-500" />
-                      Patologías previas
-                    </Label>
-                    <Textarea
-                      value={medicalRecord?.pathologies || ""}
-                      onChange={(e) => setMedicalRecord({ ...medicalRecord, pathologies: e.target.value })}
-                      placeholder="Ej: Diabetes tipo 2, hipertensión, asma..."
-                      className="input-base min-h-[80px]"
-                      data-testid="pathologies-input"
-                    />
-                  </div>
-                  
-                  {/* General Notes */}
-                  <div className="space-y-2">
-                    <Label>Notas generales</Label>
-                    <Textarea
-                      value={medicalRecord?.notes || ""}
-                      onChange={(e) => setMedicalRecord({ ...medicalRecord, notes: e.target.value })}
-                      placeholder="Observaciones adicionales del paciente..."
-                      className="input-base min-h-[80px]"
-                    />
-                  </div>
-                  
-                  <Button onClick={handleSaveMedicalRecord} className="w-full btn-primary" data-testid="save-record-btn">
-                    Guardar información médica
-                  </Button>
-                </div>
+                  </CardContent>
+                </Card>
               </TabsContent>
               
-              <TabsContent value="notes" className="flex-1 overflow-hidden flex flex-col mt-4">
+              {/* Tab: Información Médica */}
+              <TabsContent value="medico" className="flex-1 overflow-auto mt-4">
+                <Card className="border-slate-200">
+                  <CardContent className="p-6 space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-2">
+                          <Droplet className="w-4 h-4 text-red-500" />
+                          Tipo de sangre
+                        </Label>
+                        <Select 
+                          value={medicalRecord?.blood_type || ""} 
+                          onValueChange={(value) => setMedicalRecord({ ...medicalRecord, blood_type: value })}
+                        >
+                          <SelectTrigger data-testid="blood-type-select">
+                            <SelectValue placeholder="Seleccionar tipo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {BLOOD_TYPES.map((type) => (
+                              <SelectItem key={type} value={type}>{type}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-500" />
+                        Alergias conocidas
+                      </Label>
+                      <Textarea
+                        value={medicalRecord?.allergies || ""}
+                        onChange={(e) => setMedicalRecord({ ...medicalRecord, allergies: e.target.value })}
+                        placeholder="Ej: Penicilina, mariscos, látex, polen..."
+                        className="input-base min-h-[100px]"
+                        data-testid="allergies-input"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Heart className="w-4 h-4 text-red-500" />
+                        Patologías y antecedentes
+                      </Label>
+                      <Textarea
+                        value={medicalRecord?.pathologies || ""}
+                        onChange={(e) => setMedicalRecord({ ...medicalRecord, pathologies: e.target.value })}
+                        placeholder="Ej: Diabetes tipo 2, hipertensión arterial, asma, cirugías previas..."
+                        className="input-base min-h-[100px]"
+                        data-testid="pathologies-input"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label>Notas generales</Label>
+                      <Textarea
+                        value={medicalRecord?.notes || ""}
+                        onChange={(e) => setMedicalRecord({ ...medicalRecord, notes: e.target.value })}
+                        placeholder="Observaciones adicionales sobre el paciente..."
+                        className="input-base min-h-[80px]"
+                      />
+                    </div>
+                    
+                    <Button onClick={handleSaveMedicalRecord} className="btn-primary" data-testid="save-record-btn">
+                      <Save className="w-4 h-4 mr-2" />
+                      Guardar información médica
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              {/* Tab: Historial de Consultas */}
+              <TabsContent value="notas" className="flex-1 overflow-hidden flex flex-col mt-4">
                 {/* New Note Form */}
-                <Card className="mb-4 border-sky-200 bg-sky-50/50">
+                <Card className="mb-4 border-sky-200 bg-sky-50/50 flex-shrink-0">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium flex items-center gap-2">
                       <Plus className="w-4 h-4" />
@@ -443,8 +430,8 @@ export default function Patients() {
                         <Textarea
                           value={newNote.symptoms}
                           onChange={(e) => setNewNote({ ...newNote, symptoms: e.target.value })}
-                          placeholder="Síntomas del paciente..."
-                          className="input-base min-h-[60px] text-sm"
+                          placeholder="Síntomas que presenta el paciente..."
+                          className="input-base min-h-[70px] text-sm"
                         />
                       </div>
                       <div className="space-y-1">
@@ -452,8 +439,8 @@ export default function Patients() {
                         <Textarea
                           value={newNote.diagnosis}
                           onChange={(e) => setNewNote({ ...newNote, diagnosis: e.target.value })}
-                          placeholder="Diagnóstico..."
-                          className="input-base min-h-[60px] text-sm"
+                          placeholder="Diagnóstico médico..."
+                          className="input-base min-h-[70px] text-sm"
                         />
                       </div>
                     </div>
@@ -464,7 +451,7 @@ export default function Patients() {
                           value={newNote.treatment}
                           onChange={(e) => setNewNote({ ...newNote, treatment: e.target.value })}
                           placeholder="Tratamiento indicado..."
-                          className="input-base min-h-[60px] text-sm"
+                          className="input-base min-h-[70px] text-sm"
                         />
                       </div>
                       <div className="space-y-1">
@@ -473,7 +460,7 @@ export default function Patients() {
                           value={newNote.observations}
                           onChange={(e) => setNewNote({ ...newNote, observations: e.target.value })}
                           placeholder="Observaciones adicionales..."
-                          className="input-base min-h-[60px] text-sm"
+                          className="input-base min-h-[70px] text-sm"
                         />
                       </div>
                     </div>
@@ -489,40 +476,42 @@ export default function Patients() {
                   {consultationNotes.length === 0 ? (
                     <div className="text-center py-8 text-slate-500">
                       <FileText className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                      <p>No hay notas de consulta</p>
+                      <p className="font-medium">Sin historial de consultas</p>
+                      <p className="text-sm">Las notas de consulta aparecerán aquí</p>
                     </div>
                   ) : (
                     <div className="space-y-3 pr-4">
                       {consultationNotes.map((note) => (
-                        <Card key={note.id} className="border-slate-200">
+                        <Card key={note.id} className="border-slate-200 hover:border-sky-200 transition-colors">
                           <CardContent className="p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <Badge className="badge-neutral">
-                                {format(parseISO(note.date), "d MMM yyyy", { locale: es })}
+                            <div className="flex items-center gap-2 mb-3">
+                              <Badge className="bg-sky-100 text-sky-700 border-sky-200">
+                                <Calendar className="w-3 h-3 mr-1" />
+                                {format(parseISO(note.date), "EEEE d 'de' MMMM, yyyy", { locale: es })}
                               </Badge>
                             </div>
-                            <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="grid grid-cols-2 gap-4 text-sm">
                               {note.symptoms && (
-                                <div>
-                                  <p className="font-medium text-slate-700">Síntomas:</p>
+                                <div className="bg-slate-50 p-3 rounded-lg">
+                                  <p className="font-semibold text-slate-700 mb-1">Síntomas</p>
                                   <p className="text-slate-600">{note.symptoms}</p>
                                 </div>
                               )}
                               {note.diagnosis && (
-                                <div>
-                                  <p className="font-medium text-slate-700">Diagnóstico:</p>
+                                <div className="bg-slate-50 p-3 rounded-lg">
+                                  <p className="font-semibold text-slate-700 mb-1">Diagnóstico</p>
                                   <p className="text-slate-600">{note.diagnosis}</p>
                                 </div>
                               )}
                               {note.treatment && (
-                                <div>
-                                  <p className="font-medium text-slate-700">Tratamiento:</p>
+                                <div className="bg-slate-50 p-3 rounded-lg">
+                                  <p className="font-semibold text-slate-700 mb-1">Tratamiento</p>
                                   <p className="text-slate-600">{note.treatment}</p>
                                 </div>
                               )}
                               {note.observations && (
-                                <div>
-                                  <p className="font-medium text-slate-700">Observaciones:</p>
+                                <div className="bg-slate-50 p-3 rounded-lg">
+                                  <p className="font-semibold text-slate-700 mb-1">Observaciones</p>
                                   <p className="text-slate-600">{note.observations}</p>
                                 </div>
                               )}
