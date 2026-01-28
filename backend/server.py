@@ -398,7 +398,7 @@ async def register_admin(admin_data: AdminCreate):
 async def get_current_user(admin: dict = Depends(get_current_admin)):
     """Get current admin info"""
     try:
-        result = supabase.table("admins").select("id, email, name, created_at").eq("id", admin["id"]).execute()
+        result = supabase.table("admins").select("id, email, name, clinic_id, is_super_admin, created_at").eq("id", admin["id"]).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Admin not found")
         return result.data[0]
@@ -408,13 +408,217 @@ async def get_current_user(admin: dict = Depends(get_current_admin)):
         logger.error(f"Get admin error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get admin info")
 
+# ============ SUPER ADMIN - CLINICS ENDPOINTS ============
+
+WHATSAPP_NUMBER = os.environ.get('WHATSAPP_NUMBER', '521XXXXXXXXXX')  # Tu número de WhatsApp Business
+
+@api_router.get("/superadmin/stats", response_model=SuperAdminStats)
+async def get_superadmin_stats(admin: dict = Depends(require_super_admin)):
+    """Get super admin global statistics"""
+    try:
+        today = datetime.now(timezone.utc).date().isoformat()
+        
+        clinics_result = supabase.table("clinics").select("id", count="exact").execute()
+        active_clinics_result = supabase.table("clinics").select("id", count="exact").eq("is_active", True).execute()
+        patients_result = supabase.table("patients").select("id", count="exact").execute()
+        appointments_result = supabase.table("appointments").select("id", count="exact").execute()
+        today_appointments_result = supabase.table("appointments").select("id", count="exact").eq("date", today).execute()
+        alerts_result = supabase.table("alerts").select("id", count="exact").eq("status", "pending").execute()
+        
+        return SuperAdminStats(
+            total_clinics=clinics_result.count or 0,
+            active_clinics=active_clinics_result.count or 0,
+            total_patients=patients_result.count or 0,
+            total_appointments=appointments_result.count or 0,
+            appointments_today=today_appointments_result.count or 0,
+            pending_alerts=alerts_result.count or 0
+        )
+    except Exception as e:
+        logger.error(f"Get superadmin stats error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get stats")
+
+@api_router.get("/superadmin/clinics", response_model=List[ClinicResponse])
+async def get_all_clinics(admin: dict = Depends(require_super_admin)):
+    """Get all clinics (super admin only)"""
+    try:
+        result = supabase.table("clinics").select("*").order("created_at", desc=True).execute()
+        
+        clinics = []
+        for clinic in result.data:
+            clinic["whatsapp_link"] = f"https://wa.me/{WHATSAPP_NUMBER}?text={clinic['code']}"
+            clinics.append(clinic)
+        
+        return clinics
+    except Exception as e:
+        logger.error(f"Get clinics error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get clinics")
+
+@api_router.get("/superadmin/clinics/{clinic_id}", response_model=ClinicResponse)
+async def get_clinic(clinic_id: str, admin: dict = Depends(require_super_admin)):
+    """Get a specific clinic"""
+    try:
+        result = supabase.table("clinics").select("*").eq("id", clinic_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Clinic not found")
+        
+        clinic = result.data[0]
+        clinic["whatsapp_link"] = f"https://wa.me/{WHATSAPP_NUMBER}?text={clinic['code']}"
+        return clinic
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get clinic error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get clinic")
+
+@api_router.post("/superadmin/clinics", response_model=ClinicResponse)
+async def create_clinic(clinic_data: ClinicCreate, admin: dict = Depends(require_super_admin)):
+    """Create a new clinic/doctor"""
+    try:
+        # Check if code already exists
+        existing = supabase.table("clinics").select("id").eq("code", clinic_data.code.upper()).execute()
+        if existing.data:
+            raise HTTPException(status_code=400, detail="Clinic code already exists")
+        
+        clinic_id = str(uuid.uuid4())
+        new_clinic = {
+            "id": clinic_id,
+            "code": clinic_data.code.upper(),
+            "name": clinic_data.name,
+            "clinic_name": clinic_data.clinic_name,
+            "specialty": clinic_data.specialty,
+            "phone": clinic_data.phone,
+            "email": clinic_data.email,
+            "address": clinic_data.address,
+            "welcome_message": clinic_data.welcome_message or f"¡Hola! Soy el asistente del {clinic_data.name}. ¿En qué puedo ayudarte?",
+            "notes": clinic_data.notes,
+            "is_active": True,
+            "subscription_status": "active",
+            "subscription_start": datetime.now(timezone.utc).date().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        supabase.table("clinics").insert(new_clinic).execute()
+        
+        new_clinic["whatsapp_link"] = f"https://wa.me/{WHATSAPP_NUMBER}?text={new_clinic['code']}"
+        return new_clinic
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Create clinic error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create clinic")
+
+@api_router.put("/superadmin/clinics/{clinic_id}", response_model=ClinicResponse)
+async def update_clinic(clinic_id: str, update_data: ClinicUpdate, admin: dict = Depends(require_super_admin)):
+    """Update a clinic"""
+    try:
+        update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+        update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+        
+        supabase.table("clinics").update(update_dict).eq("id", clinic_id).execute()
+        
+        result = supabase.table("clinics").select("*").eq("id", clinic_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Clinic not found")
+        
+        clinic = result.data[0]
+        clinic["whatsapp_link"] = f"https://wa.me/{WHATSAPP_NUMBER}?text={clinic['code']}"
+        return clinic
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update clinic error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update clinic")
+
+@api_router.delete("/superadmin/clinics/{clinic_id}")
+async def delete_clinic(clinic_id: str, admin: dict = Depends(require_super_admin)):
+    """Delete a clinic (soft delete by deactivating)"""
+    try:
+        supabase.table("clinics").update({
+            "is_active": False,
+            "subscription_status": "cancelled",
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", clinic_id).execute()
+        return {"message": "Clinic deactivated"}
+    except Exception as e:
+        logger.error(f"Delete clinic error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete clinic")
+
+@api_router.post("/superadmin/clinics/{clinic_id}/create-admin")
+async def create_clinic_admin(clinic_id: str, admin_data: AdminCreate, admin: dict = Depends(require_super_admin)):
+    """Create an admin account for a clinic"""
+    try:
+        # Verify clinic exists
+        clinic_result = supabase.table("clinics").select("id, name").eq("id", clinic_id).execute()
+        if not clinic_result.data:
+            raise HTTPException(status_code=404, detail="Clinic not found")
+        
+        # Check if email already exists
+        existing = supabase.table("admins").select("id").eq("email", admin_data.email).execute()
+        if existing.data:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        admin_id = str(uuid.uuid4())
+        password_hash = get_password_hash(admin_data.password)
+        
+        new_admin = {
+            "id": admin_id,
+            "email": admin_data.email,
+            "password_hash": password_hash,
+            "name": admin_data.name,
+            "clinic_id": clinic_id,
+            "is_super_admin": False,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        supabase.table("admins").insert(new_admin).execute()
+        
+        return {
+            "message": "Admin created successfully",
+            "admin_id": admin_id,
+            "email": admin_data.email,
+            "clinic_id": clinic_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Create clinic admin error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create admin")
+
+@api_router.get("/superadmin/clinics/{clinic_id}/stats")
+async def get_clinic_stats(clinic_id: str, admin: dict = Depends(require_super_admin)):
+    """Get statistics for a specific clinic"""
+    try:
+        today = datetime.now(timezone.utc).date().isoformat()
+        
+        patients = supabase.table("patients").select("id", count="exact").eq("clinic_id", clinic_id).execute()
+        appointments = supabase.table("appointments").select("id", count="exact").eq("clinic_id", clinic_id).execute()
+        today_appointments = supabase.table("appointments").select("id", count="exact").eq("clinic_id", clinic_id).eq("date", today).execute()
+        alerts = supabase.table("alerts").select("id", count="exact").eq("clinic_id", clinic_id).eq("status", "pending").execute()
+        
+        return {
+            "total_patients": patients.count or 0,
+            "total_appointments": appointments.count or 0,
+            "appointments_today": today_appointments.count or 0,
+            "pending_alerts": alerts.count or 0
+        }
+    except Exception as e:
+        logger.error(f"Get clinic stats error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get clinic stats")
+
 # ============ PATIENTS ENDPOINTS ============
 
 @api_router.get("/patients", response_model=List[PatientResponse])
 async def get_patients(admin: dict = Depends(get_current_admin)):
-    """Get all patients"""
+    """Get all patients (filtered by clinic for non-super-admins)"""
     try:
-        result = supabase.table("patients").select("*").order("created_at", desc=True).execute()
+        query = supabase.table("patients").select("*")
+        
+        # Filter by clinic if not super admin
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            query = query.eq("clinic_id", admin["clinic_id"])
+        
+        result = query.order("created_at", desc=True).execute()
         return result.data
     except Exception as e:
         logger.error(f"Get patients error: {e}")
