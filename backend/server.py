@@ -969,6 +969,19 @@ RESPONDE EN ESPAÑOL. Sé conciso pero amable. Recuerda el contexto de la conver
                 supabase.table("appointments").insert(new_appointment).execute()
                 appointment_created = True
                 logger.info(f"Appointment created: {apt_id} for patient {patient_id}")
+                
+                # Send real-time notification via WebSocket
+                await manager.broadcast({
+                    "type": "new_appointment",
+                    "data": {
+                        "id": apt_id,
+                        "patient_name": patient.get('name') or 'Paciente nuevo',
+                        "patient_phone": phone,
+                        "date": fecha_match.group(1),
+                        "time": hora_match.group(1),
+                        "reason": motivo_match.group(1).strip() if motivo_match else "Consulta general"
+                    }
+                })
             
             # Clean the response to remove the markup
             ai_response = re.sub(r'\[CITA_CONFIRMADA\].*?\[/CITA_CONFIRMADA\]\s*', '', ai_response, flags=re.DOTALL)
