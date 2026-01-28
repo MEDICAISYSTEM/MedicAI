@@ -1177,6 +1177,7 @@ async def whatsapp_webhook(message: WebhookMessage):
             new_conv = {
                 "id": conv_id,
                 "patient_id": patient_id,
+                "clinic_id": clinic_id,
                 "started_at": timestamp,
                 "last_message_at": timestamp,
                 "status": "active"
