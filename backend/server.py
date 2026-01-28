@@ -415,10 +415,11 @@ WHATSAPP_NUMBER = os.environ.get('WHATSAPP_NUMBER', '521XXXXXXXXXX')  # Tu núme
 def generate_whatsapp_link(code, doctor_name=""):
     """Generate a user-friendly WhatsApp link with natural message"""
     # Mensaje natural que el paciente NO querrá borrar
+    # El código va al final entre paréntesis para que sea menos intrusivo
     if doctor_name:
-        message = f"Hola, quiero agendar una cita con {doctor_name}. Ref:{code}"
+        message = f"Hola, quiero agendar una cita con {doctor_name} (#{code})"
     else:
-        message = f"Hola, quiero agendar una cita. Ref:{code}"
+        message = f"Hola, quiero agendar una cita (#{code})"
     
     # Encode para URL
     from urllib.parse import quote
@@ -639,9 +640,15 @@ async def get_patients(admin: dict = Depends(get_current_admin)):
 
 @api_router.get("/patients/{patient_id}", response_model=PatientResponse)
 async def get_patient(patient_id: str, admin: dict = Depends(get_current_admin)):
-    """Get a specific patient"""
+    """Get a specific patient (verified by clinic ownership)"""
     try:
-        result = supabase.table("patients").select("*").eq("id", patient_id).execute()
+        query = supabase.table("patients").select("*").eq("id", patient_id)
+        
+        # Verify patient belongs to admin's clinic
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            query = query.eq("clinic_id", admin["clinic_id"])
+        
+        result = query.execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Patient not found")
         return result.data[0]
@@ -653,8 +660,16 @@ async def get_patient(patient_id: str, admin: dict = Depends(get_current_admin))
 
 @api_router.put("/patients/{patient_id}", response_model=PatientResponse)
 async def update_patient(patient_id: str, update_data: PatientUpdate, admin: dict = Depends(get_current_admin)):
-    """Update patient information"""
+    """Update patient information (verified by clinic ownership)"""
     try:
+        # Verify patient belongs to admin's clinic
+        verify_query = supabase.table("patients").select("id").eq("id", patient_id)
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            verify_query = verify_query.eq("clinic_id", admin["clinic_id"])
+        verify_result = verify_query.execute()
+        if not verify_result.data:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
         update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
         if not update_dict:
             raise HTTPException(status_code=400, detail="No update data provided")
@@ -783,9 +798,13 @@ async def get_appointments(
     status: Optional[str] = None,
     admin: dict = Depends(get_current_admin)
 ):
-    """Get appointments with optional filters"""
+    """Get appointments with optional filters (filtered by clinic for non-super-admins)"""
     try:
         query = supabase.table("appointments").select("*, patients(name, phone)")
+        
+        # Filter by clinic if not super admin
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            query = query.eq("clinic_id", admin["clinic_id"])
         
         if date:
             query = query.eq("date", date)
@@ -879,9 +898,15 @@ async def delete_appointment(appointment_id: str, admin: dict = Depends(get_curr
 
 @api_router.get("/availability", response_model=List[AvailabilitySlot])
 async def get_availability(admin: dict = Depends(get_current_admin)):
-    """Get availability slots"""
+    """Get availability slots (filtered by clinic for non-super-admins)"""
     try:
-        result = supabase.table("availability").select("*").order("day_of_week").order("start_time").execute()
+        query = supabase.table("availability").select("*")
+        
+        # Filter by clinic if not super admin
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            query = query.eq("clinic_id", admin["clinic_id"])
+        
+        result = query.order("day_of_week").order("start_time").execute()
         return result.data
     except Exception as e:
         logger.error(f"Get availability error: {e}")
@@ -948,9 +973,15 @@ async def delete_availability(slot_id: str, admin: dict = Depends(get_current_ad
 
 @api_router.get("/conversations", response_model=List[ConversationResponse])
 async def get_conversations(admin: dict = Depends(get_current_admin)):
-    """Get all conversations"""
+    """Get all conversations (filtered by clinic for non-super-admins)"""
     try:
-        result = supabase.table("conversations").select("*, patients(name, phone)").order("last_message_at", desc=True).execute()
+        query = supabase.table("conversations").select("*, patients(name, phone)")
+        
+        # Filter by clinic if not super admin
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            query = query.eq("clinic_id", admin["clinic_id"])
+        
+        result = query.order("last_message_at", desc=True).execute()
         
         conversations = []
         for conv in result.data:
@@ -997,9 +1028,13 @@ async def get_conversation(conversation_id: str, admin: dict = Depends(get_curre
 
 @api_router.get("/alerts", response_model=List[AlertResponse])
 async def get_alerts(status: Optional[str] = None, admin: dict = Depends(get_current_admin)):
-    """Get alerts with optional status filter"""
+    """Get alerts with optional status filter (filtered by clinic for non-super-admins)"""
     try:
         query = supabase.table("alerts").select("*, patients(name, phone)")
+        
+        # Filter by clinic if not super admin
+        if not admin.get("is_super_admin") and admin.get("clinic_id"):
+            query = query.eq("clinic_id", admin["clinic_id"])
         
         if status:
             query = query.eq("status", status)
@@ -1045,33 +1080,53 @@ async def update_alert(alert_id: str, update_data: AlertUpdate, admin: dict = De
 
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats(admin: dict = Depends(get_current_admin)):
-    """Get dashboard statistics"""
+    """Get dashboard statistics (filtered by clinic for non-super-admins)"""
     try:
         today = datetime.now(timezone.utc).date().isoformat()
         week_start = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
+        clinic_id = admin.get("clinic_id")
+        is_super = admin.get("is_super_admin")
         
         # Total patients
-        patients_result = supabase.table("patients").select("id", count="exact").execute()
+        patients_query = supabase.table("patients").select("id", count="exact")
+        if not is_super and clinic_id:
+            patients_query = patients_query.eq("clinic_id", clinic_id)
+        patients_result = patients_query.execute()
         total_patients = patients_result.count or 0
         
         # Today's appointments
-        today_result = supabase.table("appointments").select("id", count="exact").eq("date", today).execute()
+        today_query = supabase.table("appointments").select("id", count="exact").eq("date", today)
+        if not is_super and clinic_id:
+            today_query = today_query.eq("clinic_id", clinic_id)
+        today_result = today_query.execute()
         total_appointments_today = today_result.count or 0
         
         # Week's appointments
-        week_result = supabase.table("appointments").select("id", count="exact").gte("date", week_start).execute()
+        week_query = supabase.table("appointments").select("id", count="exact").gte("date", week_start)
+        if not is_super and clinic_id:
+            week_query = week_query.eq("clinic_id", clinic_id)
+        week_result = week_query.execute()
         total_appointments_week = week_result.count or 0
         
         # Pending alerts
-        alerts_result = supabase.table("alerts").select("id", count="exact").eq("status", "pending").execute()
+        alerts_query = supabase.table("alerts").select("id", count="exact").eq("status", "pending")
+        if not is_super and clinic_id:
+            alerts_query = alerts_query.eq("clinic_id", clinic_id)
+        alerts_result = alerts_query.execute()
         pending_alerts = alerts_result.count or 0
         
         # Confirmed appointments
-        confirmed_result = supabase.table("appointments").select("id", count="exact").eq("status", "confirmed").execute()
+        confirmed_query = supabase.table("appointments").select("id", count="exact").eq("status", "confirmed")
+        if not is_super and clinic_id:
+            confirmed_query = confirmed_query.eq("clinic_id", clinic_id)
+        confirmed_result = confirmed_query.execute()
         confirmed_appointments = confirmed_result.count or 0
         
         # Cancelled appointments
-        cancelled_result = supabase.table("appointments").select("id", count="exact").eq("status", "cancelled").execute()
+        cancelled_query = supabase.table("appointments").select("id", count="exact").eq("status", "cancelled")
+        if not is_super and clinic_id:
+            cancelled_query = cancelled_query.eq("clinic_id", clinic_id)
+        cancelled_result = cancelled_query.execute()
         cancelled_appointments = cancelled_result.count or 0
         
         return DashboardStats(
