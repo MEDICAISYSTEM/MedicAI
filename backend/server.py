@@ -128,6 +128,57 @@ class AlertResponse(BaseModel):
     status: str
     created_at: str
 
+class PatientUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+
+class MedicalRecordResponse(BaseModel):
+    id: str
+    patient_id: str
+    allergies: Optional[str] = None
+    pathologies: Optional[str] = None
+    blood_type: Optional[str] = None
+    emergency_contact: Optional[str] = None
+    emergency_phone: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class MedicalRecordUpdate(BaseModel):
+    allergies: Optional[str] = None
+    pathologies: Optional[str] = None
+    blood_type: Optional[str] = None
+    emergency_contact: Optional[str] = None
+    emergency_phone: Optional[str] = None
+    notes: Optional[str] = None
+
+class ConsultationNoteResponse(BaseModel):
+    id: str
+    patient_id: str
+    appointment_id: Optional[str] = None
+    date: str
+    symptoms: Optional[str] = None
+    diagnosis: Optional[str] = None
+    treatment: Optional[str] = None
+    observations: Optional[str] = None
+    created_at: str
+
+class ConsultationNoteCreate(BaseModel):
+    patient_id: str
+    appointment_id: Optional[str] = None
+    date: Optional[str] = None
+    symptoms: Optional[str] = None
+    diagnosis: Optional[str] = None
+    treatment: Optional[str] = None
+    observations: Optional[str] = None
+
+class ConsultationNoteUpdate(BaseModel):
+    symptoms: Optional[str] = None
+    diagnosis: Optional[str] = None
+    treatment: Optional[str] = None
+    observations: Optional[str] = None
+
+
 class AlertUpdate(BaseModel):
     status: str
 
