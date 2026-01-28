@@ -1199,9 +1199,14 @@ async def whatsapp_webhook(message: WebhookMessage):
         }
         supabase.table("messages").insert(patient_message).execute()
         
-        # Get availability for context
-        availability_result = supabase.table("availability").select("*").eq("is_available", True).order("day_of_week").execute()
+        # Get availability for context - filtered by clinic
+        availability_result = supabase.table("availability").select("*").eq("clinic_id", clinic_id).eq("is_available", True).order("day_of_week").execute()
         availability_info = availability_result.data if availability_result.data else []
+        
+        # If no clinic-specific availability, get general availability
+        if not availability_info:
+            availability_result = supabase.table("availability").select("*").is_("clinic_id", "null").eq("is_available", True).order("day_of_week").execute()
+            availability_info = availability_result.data if availability_result.data else []
         
         days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
         availability_text = "\n".join([
@@ -1224,15 +1229,22 @@ async def whatsapp_webhook(message: WebhookMessage):
         today_str = today.strftime("%Y-%m-%d")
         day_name = days[today.weekday() + 1 if today.weekday() < 6 else 0]
         
+        # Doctor/Clinic info for personalized response
+        doctor_name = clinic.get('name', 'el doctor')
+        clinic_name = clinic.get('clinic_name', 'la clínica')
+        specialty = clinic.get('specialty', '')
+        
         # System prompt for medical AI assistant
-        system_prompt = f"""Eres MedicAI, un asistente virtual de una clínica médica. Tu rol es EXCLUSIVAMENTE administrativo.
+        system_prompt = f"""Eres el asistente virtual del {doctor_name} en {clinic_name}. Tu rol es EXCLUSIVAMENTE administrativo.
 
 REGLAS ESTRICTAS:
 1. NUNCA des diagnósticos médicos ni recomendaciones de tratamiento
 2. NUNCA recetes medicamentos ni des consejos de salud específicos
 3. Solo puedes ayudar con: agendar citas, consultar precios, informar horarios, y atender urgencias administrativas
 
-INFORMACIÓN DE LA CLÍNICA:
+INFORMACIÓN DEL CONSULTORIO:
+Doctor: {doctor_name}
+{f'Especialidad: {specialty}' if specialty else ''}
 Fecha actual: {today_str} ({day_name})
 Horarios disponibles:
 {availability_text}
@@ -1251,7 +1263,7 @@ FLUJO DE CONVERSACIÓN:
    Motivo: (motivo de la cita)
    Nombre: (nombre del paciente)
    [/CITA_CONFIRMADA]
-   Y luego un mensaje amable confirmando la cita.
+   Y luego un mensaje amable confirmando la cita con el {doctor_name}.
 4. Si detectas una URGENCIA médica (dolor intenso, sangrado, emergencia), responde con [URGENCIA] al inicio.
 5. Si el paciente proporciona su nombre, responde con [NOMBRE: nombre_del_paciente] al inicio.
 
