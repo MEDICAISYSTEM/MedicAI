@@ -412,11 +412,17 @@ async def get_current_user(admin: dict = Depends(get_current_admin)):
 
 WHATSAPP_NUMBER = os.environ.get('WHATSAPP_NUMBER', '521XXXXXXXXXX')  # Tu número de WhatsApp Business
 
-def generate_whatsapp_link(code):
-    """Generate a user-friendly WhatsApp link with hidden code"""
-    # El mensaje será: "Hola 👋 #CODIGO" - amigable y con código identificable
-    message = f"Hola 👋 #{code}"
-    encoded_message = message.replace(" ", "%20").replace("#", "%23")
+def generate_whatsapp_link(code, doctor_name=""):
+    """Generate a user-friendly WhatsApp link with natural message"""
+    # Mensaje natural que el paciente NO querrá borrar
+    if doctor_name:
+        message = f"Hola, quiero agendar una cita con {doctor_name}. Ref:{code}"
+    else:
+        message = f"Hola, quiero agendar una cita. Ref:{code}"
+    
+    # Encode para URL
+    from urllib.parse import quote
+    encoded_message = quote(message)
     return f"https://wa.me/{WHATSAPP_NUMBER}?text={encoded_message}"
 
 @api_router.get("/superadmin/stats", response_model=SuperAdminStats)
