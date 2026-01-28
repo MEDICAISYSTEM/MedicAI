@@ -293,11 +293,30 @@ async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(
         admin_id = payload.get("sub")
         if admin_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return {"id": admin_id, "email": payload.get("email")}
+        
+        # Get full admin info including clinic_id and is_super_admin
+        result = supabase.table("admins").select("id, email, name, clinic_id, is_super_admin").eq("id", admin_id).execute()
+        if not result.data:
+            raise HTTPException(status_code=401, detail="Admin not found")
+        
+        admin = result.data[0]
+        return {
+            "id": admin["id"], 
+            "email": admin["email"],
+            "name": admin.get("name"),
+            "clinic_id": admin.get("clinic_id"),
+            "is_super_admin": admin.get("is_super_admin", False)
+        }
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+async def require_super_admin(admin: dict = Depends(get_current_admin)):
+    """Require super admin access"""
+    if not admin.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    return admin
 
 # ============ AUTH ENDPOINTS ============
 
@@ -323,7 +342,13 @@ async def login(credentials: AdminLogin):
         return TokenResponse(
             access_token=access_token,
             token_type="bearer",
-            admin={"id": admin["id"], "email": admin["email"], "name": admin["name"]}
+            admin={
+                "id": admin["id"], 
+                "email": admin["email"], 
+                "name": admin["name"],
+                "clinic_id": admin.get("clinic_id"),
+                "is_super_admin": admin.get("is_super_admin", False)
+            }
         )
     except HTTPException:
         raise
