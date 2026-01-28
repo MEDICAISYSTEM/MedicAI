@@ -412,6 +412,13 @@ async def get_current_user(admin: dict = Depends(get_current_admin)):
 
 WHATSAPP_NUMBER = os.environ.get('WHATSAPP_NUMBER', '521XXXXXXXXXX')  # Tu número de WhatsApp Business
 
+def generate_whatsapp_link(code):
+    """Generate a user-friendly WhatsApp link with hidden code"""
+    # El mensaje será: "Hola 👋 #CODIGO" - amigable y con código identificable
+    message = f"Hola 👋 #{code}"
+    encoded_message = message.replace(" ", "%20").replace("#", "%23")
+    return f"https://wa.me/{WHATSAPP_NUMBER}?text={encoded_message}"
+
 @api_router.get("/superadmin/stats", response_model=SuperAdminStats)
 async def get_superadmin_stats(admin: dict = Depends(require_super_admin)):
     """Get super admin global statistics"""
