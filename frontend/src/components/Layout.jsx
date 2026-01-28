@@ -9,9 +9,12 @@ import {
   AlertTriangle,
   LogOut,
   Menu,
-  X
+  X,
+  Building2,
+  Shield
 } from "lucide-react";
 import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
 import { useState } from "react";
 
 const navItems = [
@@ -23,16 +26,23 @@ const navItems = [
   { to: "/alerts", icon: AlertTriangle, label: "Alertas" },
 ];
 
+const superAdminNav = [
+  { to: "/superadmin", icon: Building2, label: "Super Admin" },
+];
+
 export default function Layout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const admin = JSON.parse(localStorage.getItem("medicai_admin") || "{}");
+  const isSuperAdmin = admin.is_super_admin;
 
   const handleLogout = () => {
     localStorage.removeItem("medicai_token");
     localStorage.removeItem("medicai_admin");
     navigate("/login");
   };
+
+  const allNavItems = isSuperAdmin ? [...superAdminNav, ...navItems] : navItems;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -43,6 +53,7 @@ export default function Layout() {
             <Activity className="w-4 h-4 text-white" />
           </div>
           <span className="font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>MedicAI</span>
+          {isSuperAdmin && <Badge className="badge-warning text-xs">Admin</Badge>}
         </div>
         <Button 
           variant="ghost" 
@@ -66,24 +77,30 @@ export default function Layout() {
             <div className="w-10 h-10 bg-sky-500 rounded-xl flex items-center justify-center shadow-lg shadow-sky-500/20">
               <Activity className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>MedicAI</span>
+            <div>
+              <span className="text-xl font-bold text-slate-900" style={{ fontFamily: 'Manrope, sans-serif' }}>MedicAI</span>
+              {isSuperAdmin && (
+                <Badge className="ml-2 badge-warning text-[10px]">Super Admin</Badge>
+              )}
+            </div>
           </div>
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-            {navItems.map((item) => (
+            {allNavItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 end={item.exact}
                 onClick={() => setSidebarOpen(false)}
                 className={({ isActive }) =>
-                  `sidebar-link ${isActive ? 'active' : ''}`
+                  `sidebar-link ${isActive ? 'active' : ''} ${item.to === '/superadmin' ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : ''}`
                 }
-                data-testid={`nav-${item.label.toLowerCase()}`}
+                data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
+                {item.to === '/superadmin' && <Shield className="w-3 h-3 ml-auto" />}
               </NavLink>
             ))}
           </nav>
@@ -91,8 +108,8 @@ export default function Layout() {
           {/* User Section */}
           <div className="p-4 border-t border-slate-100">
             <div className="flex items-center gap-3 px-3 py-2 mb-2">
-              <div className="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center">
-                <span className="text-sky-600 font-semibold text-sm">
+              <div className={`w-10 h-10 ${isSuperAdmin ? 'bg-amber-100' : 'bg-sky-100'} rounded-full flex items-center justify-center`}>
+                <span className={`${isSuperAdmin ? 'text-amber-600' : 'text-sky-600'} font-semibold text-sm`}>
                   {admin.name?.charAt(0)?.toUpperCase() || 'A'}
                 </span>
               </div>
