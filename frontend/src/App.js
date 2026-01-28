@@ -7,6 +7,7 @@ import Patients from "./pages/Patients";
 import Conversations from "./pages/Conversations";
 import Availability from "./pages/Availability";
 import Alerts from "./pages/Alerts";
+import SuperAdmin from "./pages/SuperAdmin";
 import Layout from "./components/Layout";
 
 const ProtectedRoute = ({ children }) => {
@@ -14,6 +15,21 @@ const ProtectedRoute = ({ children }) => {
   if (!token) {
     return <Navigate to="/login" replace />;
   }
+  return children;
+};
+
+const SuperAdminRoute = ({ children }) => {
+  const token = localStorage.getItem("medicai_token");
+  const admin = JSON.parse(localStorage.getItem("medicai_admin") || "{}");
+  
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  if (!admin.is_super_admin) {
+    return <Navigate to="/" replace />;
+  }
+  
   return children;
 };
 
@@ -47,6 +63,14 @@ function App() {
             <Route path="conversations" element={<Conversations />} />
             <Route path="availability" element={<Availability />} />
             <Route path="alerts" element={<Alerts />} />
+            <Route 
+              path="superadmin" 
+              element={
+                <SuperAdminRoute>
+                  <SuperAdmin />
+                </SuperAdminRoute>
+              } 
+            />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
