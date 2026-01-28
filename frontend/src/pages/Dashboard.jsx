@@ -11,7 +11,8 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  Loader2
+  Loader2,
+  CalendarDays
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -36,7 +37,11 @@ export default function Dashboard() {
       ]);
       
       setStats(statsRes.data);
-      setTodayAppointments(appointmentsRes.data.slice(0, 5));
+      // Sort appointments by time for the daily schedule
+      const sortedAppointments = appointmentsRes.data.sort((a, b) => 
+        a.time.localeCompare(b.time)
+      );
+      setTodayAppointments(sortedAppointments);
       setRecentAlerts(alertsRes.data.slice(0, 5));
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
@@ -79,6 +84,19 @@ export default function Dashboard() {
       iconColor: "text-amber-500",
     },
   ];
+
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'confirmed':
+        return <Badge className="badge-success text-xs">Confirmada</Badge>;
+      case 'cancelled':
+        return <Badge className="badge-error text-xs">Cancelada</Badge>;
+      case 'pending':
+        return <Badge className="badge-warning text-xs">Pendiente</Badge>;
+      default:
+        return <Badge className="badge-neutral text-xs">{status}</Badge>;
+    }
+  };
 
   if (loading) {
     return (
@@ -175,7 +193,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Two Column Layout */}
+      {/* Two Column Layout - Appointments and Alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Today's Appointments */}
         <Card className="stat-card" data-testid="today-appointments-card">
@@ -193,7 +211,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-3">
-                {todayAppointments.map((apt) => (
+                {todayAppointments.slice(0, 5).map((apt) => (
                   <div 
                     key={apt.id} 
                     className="flex items-center justify-between p-3 bg-slate-50 rounded-xl"
@@ -212,16 +230,7 @@ export default function Dashboard() {
                     </div>
                     <div className="text-right">
                       <p className="font-medium text-slate-900">{apt.time}</p>
-                      <Badge 
-                        className={
-                          apt.status === 'confirmed' ? 'badge-success' :
-                          apt.status === 'cancelled' ? 'badge-error' :
-                          'badge-warning'
-                        }
-                      >
-                        {apt.status === 'confirmed' ? 'Confirmada' :
-                         apt.status === 'cancelled' ? 'Cancelada' : 'Pendiente'}
-                      </Badge>
+                      {getStatusBadge(apt.status)}
                     </div>
                   </div>
                 ))}
@@ -274,6 +283,83 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Daily Schedule Table */}
+      <Card className="stat-card" data-testid="daily-schedule-card">
+        <CardHeader className="pb-4">
+          <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+            <CalendarDays className="w-5 h-5 text-violet-500" />
+            Agenda del Día - {format(new Date(), "EEEE d 'de' MMMM", { locale: es })}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {todayAppointments.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              <CalendarDays className="w-16 h-16 mx-auto mb-4 text-slate-300" />
+              <p className="text-lg font-medium">Sin citas programadas</p>
+              <p className="text-sm">Tu agenda está libre para hoy</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Hora</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Paciente</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Motivo</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Teléfono</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {todayAppointments.map((apt, index) => (
+                    <tr 
+                      key={apt.id} 
+                      className={`hover:bg-slate-50 transition-colors ${
+                        apt.priority === 'high' ? 'bg-red-50/50' : ''
+                      }`}
+                      data-testid={`schedule-row-${apt.id}`}
+                    >
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${
+                            apt.status === 'confirmed' ? 'bg-emerald-500' :
+                            apt.status === 'cancelled' ? 'bg-red-500' :
+                            'bg-amber-500'
+                          }`}></div>
+                          <span className="font-semibold text-slate-900">{apt.time}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-sky-100 rounded-full flex items-center justify-center">
+                            <span className="text-sky-600 font-semibold text-xs">
+                              {apt.patient_name?.charAt(0)?.toUpperCase() || '?'}
+                            </span>
+                          </div>
+                          <span className="font-medium text-slate-900">{apt.patient_name || 'Sin nombre'}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="text-slate-600">{apt.reason}</span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="text-slate-500 text-sm">{apt.patient_phone || '-'}</span>
+                      </td>
+                      <td className="py-4 px-4">
+                        {getStatusBadge(apt.status)}
+                        {apt.priority === 'high' && (
+                          <Badge className="badge-error ml-2 text-xs">Urgente</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
