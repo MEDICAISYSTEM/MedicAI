@@ -475,7 +475,7 @@ async def get_clinic(clinic_id: str, admin: dict = Depends(require_super_admin))
             raise HTTPException(status_code=404, detail="Clinic not found")
         
         clinic = result.data[0]
-        clinic["whatsapp_link"] = generate_whatsapp_link(clinic['code'])
+        clinic["whatsapp_link"] = generate_whatsapp_link(clinic['code'], clinic['name'])
         return clinic
     except HTTPException:
         raise
