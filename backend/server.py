@@ -1080,36 +1080,91 @@ async def whatsapp_webhook(message: WebhookMessage):
     """
     Webhook endpoint for receiving WhatsApp messages from Make.com
     This processes patient messages and uses AI to respond
+    Now with multi-tenant support - identifies clinic by code
     """
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
+        import re
         
         phone = message.phone
         content = message.message
         timestamp = message.timestamp or datetime.now(timezone.utc).isoformat()
         
-        # Check if patient exists
-        patient_result = supabase.table("patients").select("*").eq("phone", phone).execute()
+        # Check if message starts with a clinic code (for new patients)
+        clinic_id = None
+        clinic = None
+        content_upper = content.upper().strip()
+        
+        # Try to find clinic by code at the start of message
+        clinic_code_match = re.match(r'^([A-Z0-9]{3,10})\b', content_upper)
+        if clinic_code_match:
+            potential_code = clinic_code_match.group(1)
+            clinic_result = supabase.table("clinics").select("*").eq("code", potential_code).eq("is_active", True).execute()
+            if clinic_result.data:
+                clinic = clinic_result.data[0]
+                clinic_id = clinic["id"]
+                # Remove clinic code from message
+                content = content[len(potential_code):].strip()
+                if not content:
+                    # Just the code, send welcome message
+                    return {
+                        "success": True,
+                        "response": clinic.get("welcome_message") or f"¡Hola! Soy el asistente del {clinic['name']}. ¿En qué puedo ayudarte hoy?",
+                        "intent": "greeting",
+                        "clinic_id": clinic_id,
+                        "phone": phone
+                    }
+        
+        # Check if patient exists (with their associated clinic)
+        patient_result = supabase.table("patients").select("*, clinic_id").eq("phone", phone).execute()
         
         if patient_result.data:
             patient = patient_result.data[0]
             patient_id = patient["id"]
+            
+            # If patient already has a clinic, use that
+            if not clinic_id and patient.get("clinic_id"):
+                clinic_id = patient["clinic_id"]
+                clinic_result = supabase.table("clinics").select("*").eq("id", clinic_id).execute()
+                if clinic_result.data:
+                    clinic = clinic_result.data[0]
+            
             # Update last interaction
             supabase.table("patients").update({
                 "last_interaction": timestamp
             }).eq("id", patient_id).execute()
         else:
-            # Create new patient
+            # New patient - need clinic_id
+            if not clinic_id:
+                # No clinic identified - ask to use a valid link
+                return {
+                    "success": True,
+                    "response": "¡Hola! Para atenderte necesito que uses el link de WhatsApp de tu doctor. Solicítalo en tu próxima cita.",
+                    "intent": "no_clinic",
+                    "phone": phone
+                }
+            
+            # Create new patient with clinic association
             patient_id = str(uuid.uuid4())
             new_patient = {
                 "id": patient_id,
                 "phone": phone,
                 "name": None,
+                "clinic_id": clinic_id,
                 "created_at": timestamp,
                 "last_interaction": timestamp
             }
             supabase.table("patients").insert(new_patient).execute()
             patient = new_patient
+        
+        # If still no clinic, return error
+        if not clinic_id or not clinic:
+            return {
+                "success": False,
+                "response": "No pudimos identificar tu clínica. Por favor usa el link de WhatsApp que te proporcionó tu doctor.",
+                "intent": "error",
+                "phone": phone
+            }
         
         # Get or create conversation
         conv_result = supabase.table("conversations").select("*").eq("patient_id", patient_id).eq("status", "active").execute()
