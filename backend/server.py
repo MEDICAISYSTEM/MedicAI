@@ -1274,20 +1274,32 @@ async def whatsapp_webhook(message: WebhookMessage):
         content = message.message
         timestamp = message.timestamp or datetime.now(timezone.utc).isoformat()
         
-        # Check if message contains a clinic code (format: #CODIGO)
+        # Check if message contains a clinic code (format: #CODIGO or Ref:CODIGO or (CODIGO))
         clinic_id = None
         clinic = None
         
-        # Try to find clinic code with # prefix anywhere in the message
+        # Try multiple formats to find clinic code
+        # Format 1: #CODE (current format)
+        # Format 2: Ref:CODE (legacy format)
+        # Format 3: (#CODE) (parentheses format)
         clinic_code_match = re.search(r'#([A-Z0-9]{3,10})\b', content.upper())
+        if not clinic_code_match:
+            # Try Ref: format
+            clinic_code_match = re.search(r'Ref:\s*([A-Z0-9]{3,10})\b', content.upper())
+        if not clinic_code_match:
+            # Try parentheses format like (#CODE)
+            clinic_code_match = re.search(r'\(#([A-Z0-9]{3,10})\)', content.upper())
+        
         if clinic_code_match:
             potential_code = clinic_code_match.group(1)
             clinic_result = supabase.table("clinics").select("*").eq("code", potential_code).eq("is_active", True).execute()
             if clinic_result.data:
                 clinic = clinic_result.data[0]
                 clinic_id = clinic["id"]
-                # Remove the code from message for natural conversation
+                # Remove the code from message for natural conversation (all formats)
+                content = re.sub(r'\(#[A-Za-z0-9]{3,10}\)', '', content).strip()
                 content = re.sub(r'#[A-Za-z0-9]{3,10}\b', '', content).strip()
+                content = re.sub(r'Ref:\s*[A-Za-z0-9]{3,10}\b', '', content, flags=re.IGNORECASE).strip()
                 if not content:
                     # Just the code/greeting, send personalized welcome message
                     welcome = clinic.get("welcome_message") or f"¡Hola! Soy el asistente del {clinic['name']}. ¿En qué puedo ayudarte hoy?"
