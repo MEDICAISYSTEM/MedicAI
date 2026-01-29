@@ -1371,8 +1371,25 @@ async def whatsapp_webhook(message: WebhookMessage):
             patient = patient_result.data[0]
             patient_id = patient["id"]
             
-            # If patient already has a clinic, use that (for returning patients)
-            if not clinic_id and patient.get("clinic_id"):
+            # IMPORTANT: If patient used a NEW clinic code, update their clinic association
+            # This handles the case where a patient switches doctors
+            if clinic_id and patient.get("clinic_id") and patient.get("clinic_id") != clinic_id:
+                # Patient is switching to a new doctor
+                logger.info(f"Patient {phone} switching from clinic {patient.get('clinic_id')} to {clinic_id}")
+                supabase.table("patients").update({
+                    "clinic_id": clinic_id,
+                    "last_interaction": timestamp
+                }).eq("id", patient_id).execute()
+                patient["clinic_id"] = clinic_id
+            elif clinic_id and not patient.get("clinic_id"):
+                # Patient had no clinic, now has one
+                supabase.table("patients").update({
+                    "clinic_id": clinic_id,
+                    "last_interaction": timestamp
+                }).eq("id", patient_id).execute()
+                patient["clinic_id"] = clinic_id
+            elif not clinic_id and patient.get("clinic_id"):
+                # Use patient's existing clinic
                 clinic_id = patient["clinic_id"]
                 clinic_result = supabase.table("clinics").select("*").eq("id", clinic_id).eq("is_active", True).execute()
                 if clinic_result.data:
