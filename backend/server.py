@@ -1637,7 +1637,94 @@ Responde de forma natural y concisa en español:"""
         # Detect and create appointment if confirmed
         appointment_created = False
         appointment_match = re.search(r'\[CITA_CONFIRMADA\](.*?)\[/CITA_CONFIRMADA\]', ai_response, re.DOTALL)
-        if appointment_match:
+        
+        # FALLBACK: If AI didn't generate tag but patient confirmed, try to extract from conversation
+        if not appointment_match:
+            content_lower = content.lower().strip()
+            confirmation_words = ["sí", "si", "confirmo", "confirmar", "ok", "dale", "perfecto", "está bien", "de acuerdo", "acepto", "va", "listo", "hecho"]
+            is_confirmation = any(word in content_lower for word in confirmation_words) and len(content_lower) < 50
+            
+            if is_confirmation and patient.get('name'):
+                # Try to extract appointment data from AI response or conversation history
+                # Look for date patterns in last few messages
+                full_context = conversation_history + "\nASISTENTE: " + ai_response
+                
+                # Extract date - look for common patterns
+                date_patterns = [
+                    r'(\d{4}-\d{2}-\d{2})',  # 2026-01-30
+                    r'mañana.*?(\d{1,2})[:\s]*(\d{2})?',  # mañana 10:00
+                    r'(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)',
+                ]
+                
+                # Look for explicit date in response
+                fecha_in_response = re.search(r'(\d{4}-\d{2}-\d{2})', full_context)
+                hora_in_response = re.search(r'(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?', full_context)
+                
+                # Also check for "mañana", "hoy", etc.
+                from datetime import timedelta
+                target_date = None
+                target_time = None
+                
+                if fecha_in_response:
+                    target_date = fecha_in_response.group(1)
+                elif 'mañana' in full_context.lower():
+                    target_date = (today + timedelta(days=1)).strftime('%Y-%m-%d')
+                elif 'hoy' in full_context.lower():
+                    target_date = today.strftime('%Y-%m-%d')
+                
+                if hora_in_response:
+                    hour = int(hora_in_response.group(1))
+                    minute = hora_in_response.group(2) or "00"
+                    am_pm = hora_in_response.group(3) or ""
+                    if am_pm.lower() == 'pm' and hour < 12:
+                        hour += 12
+                    target_time = f"{hour:02d}:{minute}"
+                
+                # Extract reason from history
+                reason_match = re.search(r'motivo[:\s]+([^\.]+)', full_context.lower())
+                reason = reason_match.group(1).strip().capitalize() if reason_match else "Consulta general"
+                
+                if target_date and target_time:
+                    logger.info(f"FALLBACK: Creating appointment from context - Date: {target_date}, Time: {target_time}")
+                    apt_id = str(uuid.uuid4())
+                    new_appointment = {
+                        "id": apt_id,
+                        "patient_id": patient_id,
+                        "clinic_id": clinic_id,
+                        "date": target_date,
+                        "time": target_time,
+                        "reason": reason[:100],  # Limit length
+                        "status": "confirmed",
+                        "priority": "normal",
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    try:
+                        supabase.table("appointments").insert(new_appointment).execute()
+                        appointment_created = True
+                        logger.info(f"Appointment created (fallback): {apt_id} for patient {patient_id}")
+                        
+                        # Add confirmation to response if not already there
+                        if "listo" not in ai_response.lower() and "agendada" not in ai_response.lower():
+                            ai_response = f"✅ ¡Perfecto! Tu cita quedó agendada para el {target_date} a las {target_time} con el {doctor_name}."
+                        
+                        # Send WebSocket notification
+                        await manager.broadcast({
+                            "type": "new_appointment",
+                            "clinic_id": clinic_id,
+                            "data": {
+                                "id": apt_id,
+                                "patient_name": patient.get('name') or 'Paciente nuevo',
+                                "patient_phone": phone,
+                                "date": target_date,
+                                "time": target_time,
+                                "reason": reason,
+                                "doctor_name": clinic.get('name', 'Doctor')
+                            }
+                        })
+                    except Exception as e:
+                        logger.error(f"Error creating fallback appointment: {e}")
+        
+        if appointment_match and not appointment_created:
             apt_text = appointment_match.group(1)
             fecha_match = re.search(r'Fecha:\s*(\d{4}-\d{2}-\d{2})', apt_text)
             hora_match = re.search(r'Hora:\s*(\d{1,2}:\d{2})', apt_text)
