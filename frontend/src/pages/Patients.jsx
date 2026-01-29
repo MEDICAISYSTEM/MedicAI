@@ -415,6 +415,72 @@ export default function Patients() {
               
               {/* Tab: Historial de Consultas */}
               <TabsContent value="notas" className="flex-1 overflow-hidden flex flex-col mt-4">
+                {/* Quick Medical Info Panel - Show always for context */}
+                <Card className="mb-3 border-slate-200 flex-shrink-0">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Heart className="w-4 h-4 text-red-500" />
+                        Información médica del paciente
+                      </h4>
+                      {(!medicalRecord?.blood_type && !medicalRecord?.allergies) && (
+                        <Badge className="badge-warning text-xs">Primera consulta - Completar datos</Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <Label className="text-xs text-slate-500 flex items-center gap-1">
+                          <Droplet className="w-3 h-3 text-red-500" />
+                          Tipo de sangre
+                        </Label>
+                        <Select 
+                          value={medicalRecord?.blood_type || ""} 
+                          onValueChange={(value) => setMedicalRecord({ ...medicalRecord, blood_type: value })}
+                        >
+                          <SelectTrigger className="h-8 text-sm mt-1">
+                            <SelectValue placeholder="Seleccionar" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {BLOOD_TYPES.map((type) => (
+                              <SelectItem key={type} value={type}>{type}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-xs text-slate-500 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-amber-500" />
+                          Alergias conocidas
+                        </Label>
+                        <Input
+                          value={medicalRecord?.allergies || ""}
+                          onChange={(e) => setMedicalRecord({ ...medicalRecord, allergies: e.target.value })}
+                          placeholder="Ej: Penicilina, mariscos..."
+                          className="input-base h-8 text-sm mt-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <Label className="text-xs text-slate-500">Patologías y antecedentes</Label>
+                      <Input
+                        value={medicalRecord?.pathologies || ""}
+                        onChange={(e) => setMedicalRecord({ ...medicalRecord, pathologies: e.target.value })}
+                        placeholder="Ej: Diabetes, hipertensión, cirugías previas..."
+                        className="input-base h-8 text-sm mt-1"
+                      />
+                    </div>
+                    <Button 
+                      onClick={handleSaveMedicalRecord} 
+                      size="sm" 
+                      variant="outline" 
+                      className="mt-2"
+                    >
+                      <Save className="w-3 h-3 mr-1" />
+                      Guardar datos médicos
+                    </Button>
+                  </CardContent>
+                </Card>
+
                 {/* New Note Form */}
                 <Card className="mb-4 border-sky-200 bg-sky-50/50 flex-shrink-0">
                   <CardHeader className="pb-2">
