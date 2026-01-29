@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getDashboardStats, getAppointments, getAlerts, createConsultationNote } from "../lib/api";
+import { getDashboardStats, getAppointments, getAlerts, createConsultationNote, getMedicalRecord, updateMedicalRecord } from "../lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import {
@@ -13,6 +14,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from "../components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import { 
   Users, 
   Calendar, 
@@ -27,10 +35,15 @@ import {
   FileText,
   Stethoscope,
   Bell,
-  RefreshCw
+  RefreshCw,
+  Heart,
+  Droplet,
+  AlertCircle
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+
+const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
