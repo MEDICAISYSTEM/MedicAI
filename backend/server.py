@@ -1497,6 +1497,14 @@ async def whatsapp_webhook(message: WebhookMessage):
         doctor_name = clinic.get('name', 'el doctor')
         clinic_name = clinic.get('clinic_name', 'la clínica')
         specialty = clinic.get('specialty', '')
+        consultation_price = clinic.get('consultation_price')
+        consultation_currency = clinic.get('consultation_currency', 'MXN')
+        
+        # Build price info
+        if consultation_price:
+            price_info = f"Costo de consulta: ${consultation_price:.0f} {consultation_currency}"
+        else:
+            price_info = "Costo de consulta: No disponible (el paciente debe consultar directamente en el consultorio)"
         
         # System prompt for medical AI assistant
         system_prompt = f"""Eres el asistente virtual del {doctor_name} en {clinic_name}. Tu rol es EXCLUSIVAMENTE administrativo.
@@ -1505,10 +1513,13 @@ REGLAS ESTRICTAS:
 1. NUNCA des diagnósticos médicos ni recomendaciones de tratamiento
 2. NUNCA recetes medicamentos ni des consejos de salud específicos
 3. Solo puedes ayudar con: agendar citas, consultar precios, informar horarios, y atender urgencias administrativas
+4. Si te preguntan por precios y NO hay precio configurado, indica que deben consultar directamente en el consultorio
+5. NUNCA inventes precios - solo usa la información que tienes disponible
 
 INFORMACIÓN DEL CONSULTORIO:
 Doctor: {doctor_name}
 {f'Especialidad: {specialty}' if specialty else ''}
+{price_info}
 Fecha actual: {today_str} ({day_name})
 Horarios disponibles:
 {availability_text}
