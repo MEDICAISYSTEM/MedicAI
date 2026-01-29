@@ -626,6 +626,39 @@ async def get_clinic_stats(clinic_id: str, admin: dict = Depends(require_super_a
         logger.error(f"Get clinic stats error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get clinic stats")
 
+@api_router.post("/superadmin/fix-orphan-patients/{clinic_id}")
+async def fix_orphan_patients(clinic_id: str, admin: dict = Depends(get_current_admin)):
+    """Assign orphan patients (without clinic_id) to a specific clinic - Super Admin only"""
+    if not admin.get("is_super_admin"):
+        raise HTTPException(status_code=403, detail="Only super admin can perform this action")
+    
+    try:
+        # Get all patients without clinic_id
+        orphan_patients = supabase.table("patients").select("id, phone").is_("clinic_id", "null").execute()
+        
+        if not orphan_patients.data:
+            return {"message": "No orphan patients found", "updated": 0}
+        
+        # Update them to the specified clinic
+        updated_count = 0
+        for patient in orphan_patients.data:
+            supabase.table("patients").update({"clinic_id": clinic_id}).eq("id", patient["id"]).execute()
+            updated_count += 1
+            logger.info(f"Assigned patient {patient['phone']} to clinic {clinic_id}")
+        
+        # Also update orphan conversations
+        orphan_convs = supabase.table("conversations").select("id").is_("clinic_id", "null").execute()
+        for conv in orphan_convs.data or []:
+            supabase.table("conversations").update({"clinic_id": clinic_id}).eq("id", conv["id"]).execute()
+        
+        return {
+            "message": f"Successfully assigned {updated_count} patients to clinic",
+            "updated": updated_count
+        }
+    except Exception as e:
+        logger.error(f"Fix orphan patients error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fix orphan patients")
+
 # ============ PATIENTS ENDPOINTS ============
 
 @api_router.get("/patients", response_model=List[PatientResponse])
