@@ -1702,133 +1702,87 @@ Responde como secretaria médica profesional:"""
             patient['name'] = new_name
             ai_response = re.sub(r'\[NOMBRE:[^\]]+\]\s*', '', ai_response)
         
-        # Detect and create appointment if confirmed
+        # ═══════════════════════════════════════════════════════════════
+        # HANDLE APPOINTMENT CANCELLATION
+        # ═══════════════════════════════════════════════════════════════
+        cancel_match = re.search(r'\[CITA_CANCELADA\](.*?)\[/CITA_CANCELADA\]', ai_response, re.DOTALL)
+        if cancel_match:
+            cancel_text = cancel_match.group(1)
+            id_match = re.search(r'ID:\s*([a-f0-9-]+)', cancel_text, re.IGNORECASE)
+            
+            if id_match:
+                apt_id_prefix = id_match.group(1).strip()
+                # Find appointment by ID prefix
+                for apt in existing_appointments:
+                    if apt['id'].startswith(apt_id_prefix):
+                        # Cancel the appointment
+                        supabase.table("appointments").update({"status": "cancelled"}).eq("id", apt['id']).execute()
+                        logger.info(f"Appointment cancelled: {apt['id']} for patient {patient_id}")
+                        break
+            else:
+                # If no ID provided, cancel the most recent confirmed appointment
+                if existing_appointments:
+                    apt_to_cancel = existing_appointments[0]
+                    supabase.table("appointments").update({"status": "cancelled"}).eq("id", apt_to_cancel['id']).execute()
+                    logger.info(f"Appointment cancelled (no ID): {apt_to_cancel['id']} for patient {patient_id}")
+            
+            # Clean the response
+            ai_response = re.sub(r'\[CITA_CANCELADA\].*?\[/CITA_CANCELADA\]\s*', '', ai_response, flags=re.DOTALL)
+        
+        # ═══════════════════════════════════════════════════════════════
+        # HANDLE APPOINTMENT CREATION
+        # ═══════════════════════════════════════════════════════════════
         appointment_created = False
         appointment_match = re.search(r'\[CITA_CONFIRMADA\](.*?)\[/CITA_CONFIRMADA\]', ai_response, re.DOTALL)
         
-        # FALLBACK: If AI didn't generate tag but patient confirmed, try to extract from conversation
-        if not appointment_match:
-            content_lower = content.lower().strip()
-            confirmation_words = ["sí", "si", "confirmo", "confirmar", "ok", "dale", "perfecto", "está bien", "de acuerdo", "acepto", "va", "listo", "hecho"]
-            is_confirmation = any(word in content_lower for word in confirmation_words) and len(content_lower) < 50
-            
-            if is_confirmation and patient.get('name'):
-                # Try to extract appointment data from AI response or conversation history
-                # Look for date patterns in last few messages
-                full_context = conversation_history + "\nASISTENTE: " + ai_response
-                
-                # Extract date - look for common patterns
-                date_patterns = [
-                    r'(\d{4}-\d{2}-\d{2})',  # 2026-01-30
-                    r'mañana.*?(\d{1,2})[:\s]*(\d{2})?',  # mañana 10:00
-                    r'(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)',
-                ]
-                
-                # Look for explicit date in response
-                fecha_in_response = re.search(r'(\d{4}-\d{2}-\d{2})', full_context)
-                hora_in_response = re.search(r'(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?', full_context)
-                
-                # Also check for "mañana", "hoy", etc.
-                from datetime import timedelta
-                target_date = None
-                target_time = None
-                
-                if fecha_in_response:
-                    target_date = fecha_in_response.group(1)
-                elif 'mañana' in full_context.lower():
-                    target_date = (today + timedelta(days=1)).strftime('%Y-%m-%d')
-                elif 'hoy' in full_context.lower():
-                    target_date = today.strftime('%Y-%m-%d')
-                
-                if hora_in_response:
-                    hour = int(hora_in_response.group(1))
-                    minute = hora_in_response.group(2) or "00"
-                    am_pm = hora_in_response.group(3) or ""
-                    if am_pm.lower() == 'pm' and hour < 12:
-                        hour += 12
-                    target_time = f"{hour:02d}:{minute}"
-                
-                # Extract reason from history
-                reason_match = re.search(r'motivo[:\s]+([^\.]+)', full_context.lower())
-                reason = reason_match.group(1).strip().capitalize() if reason_match else "Consulta general"
-                
-                if target_date and target_time:
-                    logger.info(f"FALLBACK: Creating appointment from context - Date: {target_date}, Time: {target_time}")
-                    apt_id = str(uuid.uuid4())
-                    new_appointment = {
-                        "id": apt_id,
-                        "patient_id": patient_id,
-                        "clinic_id": clinic_id,
-                        "date": target_date,
-                        "time": target_time,
-                        "reason": reason[:100],  # Limit length
-                        "status": "confirmed",
-                        "priority": "normal",
-                        "created_at": datetime.now(timezone.utc).isoformat()
-                    }
-                    try:
-                        supabase.table("appointments").insert(new_appointment).execute()
-                        appointment_created = True
-                        logger.info(f"Appointment created (fallback): {apt_id} for patient {patient_id}")
-                        
-                        # Add confirmation to response if not already there
-                        if "listo" not in ai_response.lower() and "agendada" not in ai_response.lower():
-                            ai_response = f"✅ ¡Perfecto! Tu cita quedó agendada para el {target_date} a las {target_time} con el {doctor_name}."
-                        
-                        # Send WebSocket notification
-                        await manager.broadcast({
-                            "type": "new_appointment",
-                            "clinic_id": clinic_id,
-                            "data": {
-                                "id": apt_id,
-                                "patient_name": patient.get('name') or 'Paciente nuevo',
-                                "patient_phone": phone,
-                                "date": target_date,
-                                "time": target_time,
-                                "reason": reason,
-                                "doctor_name": clinic.get('name', 'Doctor')
-                            }
-                        })
-                    except Exception as e:
-                        logger.error(f"Error creating fallback appointment: {e}")
-        
-        if appointment_match and not appointment_created:
+        if appointment_match:
             apt_text = appointment_match.group(1)
             fecha_match = re.search(r'Fecha:\s*(\d{4}-\d{2}-\d{2})', apt_text)
             hora_match = re.search(r'Hora:\s*(\d{1,2}:\d{2})', apt_text)
             motivo_match = re.search(r'Motivo:\s*(.+?)(?:\n|$)', apt_text)
             
             if fecha_match and hora_match:
-                apt_id = str(uuid.uuid4())
-                new_appointment = {
-                    "id": apt_id,
-                    "patient_id": patient_id,
-                    "clinic_id": clinic_id,
-                    "date": fecha_match.group(1),
-                    "time": hora_match.group(1),
-                    "reason": motivo_match.group(1).strip() if motivo_match else "Consulta general",
-                    "status": "confirmed",
-                    "priority": "normal",
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                supabase.table("appointments").insert(new_appointment).execute()
-                appointment_created = True
-                logger.info(f"Appointment created: {apt_id} for patient {patient_id} at clinic {clinic_id}")
+                new_date = fecha_match.group(1)
+                new_time = hora_match.group(1)
+                new_reason = motivo_match.group(1).strip() if motivo_match else "Consulta general"
                 
-                # Send real-time notification via WebSocket
-                await manager.broadcast({
-                    "type": "new_appointment",
-                    "clinic_id": clinic_id,
-                    "data": {
+                # CHECK FOR DUPLICATES: Verify no existing appointment at same date/time
+                duplicate_check = supabase.table("appointments").select("id").eq("patient_id", patient_id).eq("clinic_id", clinic_id).eq("date", new_date).eq("time", new_time).eq("status", "confirmed").execute()
+                
+                if duplicate_check.data:
+                    logger.warning(f"Duplicate appointment prevented for patient {patient_id} at {new_date} {new_time}")
+                    ai_response = f"Ya tiene una cita confirmada para el {new_date} a las {new_time}. ¿Desea mantenerla, cancelarla o elegir otro horario?"
+                else:
+                    apt_id = str(uuid.uuid4())
+                    new_appointment = {
                         "id": apt_id,
-                        "patient_name": patient.get('name') or 'Paciente nuevo',
-                        "patient_phone": phone,
-                        "date": fecha_match.group(1),
-                        "time": hora_match.group(1),
-                        "reason": motivo_match.group(1).strip() if motivo_match else "Consulta general",
-                        "doctor_name": clinic.get('name', 'Doctor')
+                        "patient_id": patient_id,
+                        "clinic_id": clinic_id,
+                        "date": new_date,
+                        "time": new_time,
+                        "reason": new_reason[:100],
+                        "status": "confirmed",
+                        "priority": "normal",
+                        "created_at": datetime.now(timezone.utc).isoformat()
                     }
-                })
+                    supabase.table("appointments").insert(new_appointment).execute()
+                    appointment_created = True
+                    logger.info(f"Appointment created: {apt_id} for patient {patient_id} at clinic {clinic_id}")
+                    
+                    # Send real-time notification via WebSocket
+                    await manager.broadcast({
+                        "type": "new_appointment",
+                        "clinic_id": clinic_id,
+                        "data": {
+                            "id": apt_id,
+                            "patient_name": patient.get('name') or 'Paciente nuevo',
+                            "patient_phone": phone,
+                            "date": new_date,
+                            "time": new_time,
+                            "reason": new_reason,
+                            "doctor_name": clinic.get('name', 'Doctor')
+                        }
+                    })
             
             # Clean the response to remove the markup
             ai_response = re.sub(r'\[CITA_CONFIRMADA\].*?\[/CITA_CONFIRMADA\]\s*', '', ai_response, flags=re.DOTALL)
