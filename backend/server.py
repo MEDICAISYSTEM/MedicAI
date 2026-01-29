@@ -1273,7 +1273,28 @@ async def whatsapp_webhook(message: WebhookMessage):
         phone = message.phone
         content = message.message
         original_content = content  # Keep original for logging
-        timestamp = message.timestamp or datetime.now(timezone.utc).isoformat()
+        
+        # Handle timestamp - convert Unix timestamp to ISO if needed
+        raw_timestamp = message.timestamp
+        if raw_timestamp:
+            # Check if it's a Unix timestamp (numeric string or number)
+            try:
+                if isinstance(raw_timestamp, str) and raw_timestamp.isdigit():
+                    # Unix timestamp in seconds
+                    timestamp = datetime.fromtimestamp(int(raw_timestamp), tz=timezone.utc).isoformat()
+                elif isinstance(raw_timestamp, (int, float)):
+                    timestamp = datetime.fromtimestamp(raw_timestamp, tz=timezone.utc).isoformat()
+                elif 'T' in str(raw_timestamp) or '-' in str(raw_timestamp):
+                    # Already ISO format
+                    timestamp = raw_timestamp
+                else:
+                    timestamp = datetime.now(timezone.utc).isoformat()
+            except (ValueError, TypeError, OSError):
+                timestamp = datetime.now(timezone.utc).isoformat()
+        else:
+            timestamp = datetime.now(timezone.utc).isoformat()
+        
+        logger.info(f"Webhook received: phone={phone}, message_preview={content[:50] if content else 'empty'}...")
         is_first_contact = False  # Flag to track if this is first message with code
         
         # Check if message contains a clinic code (format: #CODIGO or Ref:CODIGO or (CODIGO))
