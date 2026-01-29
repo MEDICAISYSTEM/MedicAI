@@ -160,7 +160,7 @@ export default function Dashboard() {
     fetchData();
   }, [fetchData]);
 
-  const handleOpenNoteDialog = (appointment) => {
+  const handleOpenNoteDialog = async (appointment) => {
     setSelectedAppointment(appointment);
     setConsultationNote({
       symptoms: "",
@@ -168,7 +168,25 @@ export default function Dashboard() {
       treatment: "",
       observations: ""
     });
+    setMedicalRecord(null);
     setNoteDialogOpen(true);
+    
+    // Load medical record for this patient
+    setLoadingMedicalRecord(true);
+    try {
+      const recordRes = await getMedicalRecord(appointment.patient_id);
+      setMedicalRecord(recordRes.data);
+    } catch (error) {
+      console.error("Error loading medical record:", error);
+      // If no record exists, initialize empty one
+      setMedicalRecord({
+        blood_type: "",
+        allergies: "",
+        pathologies: ""
+      });
+    } finally {
+      setLoadingMedicalRecord(false);
+    }
   };
 
   const handleSaveConsultationNote = async () => {
@@ -179,6 +197,12 @@ export default function Dashboard() {
     
     setSavingNote(true);
     try {
+      // First, save/update medical record if there are changes
+      if (medicalRecord && (medicalRecord.blood_type || medicalRecord.allergies || medicalRecord.pathologies)) {
+        await updateMedicalRecord(selectedAppointment.patient_id, medicalRecord);
+      }
+      
+      // Then save the consultation note
       await createConsultationNote(selectedAppointment.patient_id, {
         ...consultationNote,
         patient_id: selectedAppointment.patient_id,
