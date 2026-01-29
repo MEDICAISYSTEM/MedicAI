@@ -57,6 +57,8 @@ export default function Dashboard() {
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [savingNote, setSavingNote] = useState(false);
+  const [loadingMedicalRecord, setLoadingMedicalRecord] = useState(false);
+  const [medicalRecord, setMedicalRecord] = useState(null);
   const [consultationNote, setConsultationNote] = useState({
     symptoms: "",
     diagnosis: "",
