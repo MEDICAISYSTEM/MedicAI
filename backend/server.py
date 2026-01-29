@@ -1357,6 +1357,52 @@ async def whatsapp_webhook(message: WebhookMessage):
                 "phone": phone
             }
         
+        # Handle first contact welcome message (after patient is created/found)
+        if is_first_contact and not content:
+            # Patient just clicked the link, send personalized welcome
+            welcome = clinic.get("welcome_message") or f"¡Hola! Soy el asistente del {clinic['name']}. ¿En qué puedo ayudarte hoy?"
+            
+            # Create/update conversation for tracking
+            conv_result = supabase.table("conversations").select("*").eq("patient_id", patient_id).eq("status", "active").execute()
+            if not conv_result.data:
+                conv_id = str(uuid.uuid4())
+                new_conv = {
+                    "id": conv_id,
+                    "patient_id": patient_id,
+                    "clinic_id": clinic_id,
+                    "started_at": timestamp,
+                    "last_message_at": timestamp,
+                    "status": "active"
+                }
+                supabase.table("conversations").insert(new_conv).execute()
+            else:
+                conv_id = conv_result.data[0]["id"]
+            
+            # Save welcome message
+            welcome_msg_id = str(uuid.uuid4())
+            welcome_message = {
+                "id": welcome_msg_id,
+                "conversation_id": conv_id,
+                "sender": "ai",
+                "content": welcome,
+                "timestamp": timestamp,
+                "intent": "greeting"
+            }
+            supabase.table("messages").insert(welcome_message).execute()
+            
+            return {
+                "success": True,
+                "response": welcome,
+                "intent": "greeting",
+                "clinic_id": clinic_id,
+                "patient_id": patient_id,
+                "phone": phone
+            }
+        
+        # If content is empty but not first contact, set a default
+        if not content:
+            content = "Hola"
+        
         # Get or create conversation
         conv_result = supabase.table("conversations").select("*").eq("patient_id", patient_id).eq("status", "active").execute()
         
