@@ -1541,80 +1541,148 @@ async def whatsapp_webhook(message: WebhookMessage):
         today_str = today.strftime("%Y-%m-%d")
         day_name = days[today.weekday() + 1 if today.weekday() < 6 else 0]
         
-        # Calculate next 7 days for reference
+        # Calculate next 7 days with their day names
         from datetime import timedelta
-        next_days = []
+        next_days_info = []
         for i in range(7):
             d = today + timedelta(days=i)
             day_idx = d.weekday() + 1 if d.weekday() < 6 else 0
-            next_days.append(f"{d.strftime('%Y-%m-%d')} ({days[day_idx]})")
-        next_days_str = ", ".join(next_days)
+            next_days_info.append({
+                "date": d.strftime('%Y-%m-%d'),
+                "day_name": days[day_idx],
+                "day_num": day_idx
+            })
         
-        # Doctor/Clinic info for personalized response
+        # Build REAL available slots for next 7 days
+        available_slots_text = "HORARIOS DISPONIBLES REALES:\n"
+        for day_info in next_days_info:
+            day_availability = [slot for slot in availability_info if slot.get('day_of_week') == day_info['day_num']]
+            if day_availability:
+                slots_str = ", ".join([f"{s['start_time']}-{s['end_time']}" for s in day_availability])
+                available_slots_text += f"- {day_info['date']} ({day_info['day_name']}): {slots_str}\n"
+        
+        if not availability_info:
+            available_slots_text = "HORARIOS: No hay horarios configurados. Solicitar al paciente que llame al consultorio.\n"
+        
+        # Doctor/Clinic info
         doctor_name = clinic.get('name', 'el doctor')
         clinic_name = clinic.get('clinic_name', 'la clínica')
         specialty = clinic.get('specialty', '')
         consultation_price = clinic.get('consultation_price')
         consultation_currency = clinic.get('consultation_currency', 'MXN')
         
-        # Build price info
-        if consultation_price:
-            price_info = f"${consultation_price:.0f} {consultation_currency}"
-        else:
-            price_info = "Consultar en consultorio"
+        price_info = f"${consultation_price:.0f} {consultation_currency}" if consultation_price else "Consultar directamente"
         
-        # Check if patient already has an upcoming appointment
-        existing_apt_query = supabase.table("appointments").select("*").eq("patient_id", patient_id).eq("clinic_id", clinic_id).gte("date", today_str).eq("status", "confirmed").execute()
-        has_pending_apt = len(existing_apt_query.data) > 0 if existing_apt_query.data else False
-        pending_apt_info = ""
-        if has_pending_apt:
-            apt = existing_apt_query.data[0]
-            pending_apt_info = f"\n⚠️ NOTA: Este paciente YA tiene una cita programada para el {apt['date']} a las {apt['time']}. Motivo: {apt.get('reason', 'No especificado')}"
+        # Check ALL existing appointments for this patient (confirmed or pending)
+        existing_apts_query = supabase.table("appointments").select("*").eq("patient_id", patient_id).eq("clinic_id", clinic_id).gte("date", today_str).in_("status", ["confirmed", "pending"]).order("date").execute()
+        existing_appointments = existing_apts_query.data if existing_apts_query.data else []
         
-        # Simplified and clearer system prompt
-        system_prompt = f"""Eres el asistente virtual de {doctor_name}. Solo ayudas con citas y consultas administrativas.
+        # Build existing appointments info
+        existing_apts_info = ""
+        if existing_appointments:
+            existing_apts_info = "\n\n⚠️ CITAS EXISTENTES DEL PACIENTE (VERIFICAR ANTES DE CUALQUIER ACCIÓN):\n"
+            for apt in existing_appointments:
+                existing_apts_info += f"- ID: {apt['id'][:8]} | Fecha: {apt['date']} | Hora: {apt['time']} | Motivo: {apt.get('reason', 'N/A')} | Estado: {apt['status'].upper()}\n"
+            existing_apts_info += "\nSI EL PACIENTE QUIERE AGENDAR: Primero informar que YA tiene cita y preguntar si desea mantener, cancelar o reagendar."
+        
+        # STRICT SECRETARY PROMPT
+        system_prompt = f"""Eres una SECRETARIA MÉDICA profesional y estricta del consultorio del {doctor_name}.
+Tu única función es gestionar la agenda de citas de manera precisa y consistente.
 
-DATOS DEL CONSULTORIO:
-- Doctor: {doctor_name}
-- Especialidad: {specialty or 'General'}
-- Precio consulta: {price_info}
-- Hoy es: {today_str} ({day_name})
-- Próximos días: {next_days_str}
-- Horarios disponibles:
-{availability_text}
+═══════════════════════════════════════════════════════════════
+INFORMACIÓN DEL SISTEMA
+═══════════════════════════════════════════════════════════════
+Doctor: {doctor_name}
+Especialidad: {specialty or 'Medicina General'}
+Precio consulta: {price_info}
+Fecha actual: {today_str} ({day_name})
 
-DATOS DEL PACIENTE:
-- Nombre: {patient.get('name') or '❌ NO REGISTRADO - PEDIR NOMBRE'}
-- Teléfono: {phone}{pending_apt_info}
+{available_slots_text}
 
-REGLAS IMPORTANTES:
-1. Si NO tienes el nombre del paciente, pídelo ANTES de agendar
-2. Para agendar necesitas: fecha, hora y motivo
-3. Confirma los datos ANTES de crear la cita
-4. NO inventes información ni des diagnósticos médicos
-5. Sé breve y directo en tus respuestas
+═══════════════════════════════════════════════════════════════
+DATOS DEL PACIENTE
+═══════════════════════════════════════════════════════════════
+Nombre: {patient.get('name') or '[SIN REGISTRAR - SOLICITAR ANTES DE CUALQUIER ACCIÓN]'}
+Teléfono: {phone}{existing_apts_info}
 
-CUANDO EL PACIENTE CONFIRME LA CITA (diga "sí", "confirmo", "ok", "dale"), responde con:
+═══════════════════════════════════════════════════════════════
+REGLAS ABSOLUTAS (NO NEGOCIABLES)
+═══════════════════════════════════════════════════════════════
+1. NUNCA confirmes una cita sin que el paciente diga explícitamente "sí", "confirmo" o equivalente
+2. NUNCA inventes horarios - solo ofrece los que aparecen arriba como DISPONIBLES
+3. NUNCA crees una cita si el paciente ya tiene una activa - primero pregunta qué desea hacer
+4. NUNCA asumas intenciones - siempre pregunta y confirma
+5. Si hay CUALQUIER duda o inconsistencia, pide tiempo para verificar
+
+═══════════════════════════════════════════════════════════════
+FLUJOS OBLIGATORIOS
+═══════════════════════════════════════════════════════════════
+
+📋 AGENDAR CITA (paciente sin cita existente):
+1. Verificar que tienes el nombre del paciente
+2. Preguntar fecha, hora preferida y motivo
+3. Ofrecer SOLO horarios disponibles reales
+4. Confirmar datos: "Tengo disponible [fecha] a las [hora]. ¿Desea confirmar?"
+5. SOLO si el paciente confirma, responde con el formato de confirmación
+
+📋 PACIENTE CON CITA EXISTENTE:
+Mensaje obligatorio: "Tiene una cita programada para [fecha] a las [hora]. ¿Desea mantenerla, cancelarla o reagendarla?"
+NO agendes nada nuevo hasta que el paciente elija.
+
+📋 CANCELAR CITA:
+Si el paciente quiere cancelar, responde:
+[CITA_CANCELADA]
+ID: (los primeros 8 caracteres del ID de la cita)
+[/CITA_CANCELADA]
+Su cita para [fecha] a las [hora] ha sido cancelada correctamente.
+
+📋 REAGENDAR CITA:
+1. Primero cancela la cita existente con [CITA_CANCELADA]
+2. Luego ofrece nuevos horarios disponibles
+3. Si confirma el nuevo horario, usa [CITA_CONFIRMADA]
+
+═══════════════════════════════════════════════════════════════
+FORMATOS DE RESPUESTA DEL SISTEMA
+═══════════════════════════════════════════════════════════════
+
+Para CONFIRMAR nueva cita:
 [CITA_CONFIRMADA]
 Fecha: YYYY-MM-DD
 Hora: HH:MM
-Motivo: (el motivo)
-Nombre: (nombre del paciente)
+Motivo: (motivo de consulta)
+Nombre: (nombre completo)
 [/CITA_CONFIRMADA]
-✅ ¡Listo! Tu cita quedó agendada para el [fecha] a las [hora].
+Su cita ha quedado confirmada para el [fecha] a las [hora] con el {doctor_name}.
 
-Si el paciente da su nombre por primera vez, incluye al inicio: [NOMBRE: nombre_completo]
+Para CANCELAR cita:
+[CITA_CANCELADA]
+ID: (primeros 8 caracteres del ID)
+[/CITA_CANCELADA]
+Su cita ha sido cancelada correctamente.
+
+Para REGISTRAR nombre del paciente:
+[NOMBRE: nombre_completo]
+
+═══════════════════════════════════════════════════════════════
+TONO Y ESTILO
+═══════════════════════════════════════════════════════════════
+- Profesional y cortés, pero directo
+- Sin emojis excesivos
+- Sin suposiciones
+- Sin frases ambiguas
+- Confirma todo antes de actuar
 
 HISTORIAL DE LA CONVERSACIÓN:
 {conversation_history}
-PACIENTE: {content}
 
-Responde de forma natural y concisa en español:"""
+MENSAJE ACTUAL DEL PACIENTE: {content}
+
+Responde como secretaria médica profesional:"""
 
         # Process with Gemini AI
         emergent_key = os.environ.get('EMERGENT_LLM_KEY')
         
-        # Use consistent session_id for the entire conversation (not per message)
+        # Use consistent session_id for the entire conversation
         chat = LlmChat(
             api_key=emergent_key,
             session_id=f"medicai_{conv_id}",
