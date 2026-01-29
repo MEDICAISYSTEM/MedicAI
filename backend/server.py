@@ -1378,7 +1378,7 @@ async def whatsapp_webhook(message: WebhookMessage):
             else:
                 conv_id = conv_result.data[0]["id"]
             
-            # Save welcome message
+            # Save welcome message (intent as None since 'greeting' may not be in DB constraint)
             welcome_msg_id = str(uuid.uuid4())
             welcome_message = {
                 "id": welcome_msg_id,
@@ -1386,7 +1386,7 @@ async def whatsapp_webhook(message: WebhookMessage):
                 "sender": "ai",
                 "content": welcome,
                 "timestamp": timestamp,
-                "intent": "greeting"
+                "intent": None
             }
             supabase.table("messages").insert(welcome_message).execute()
             
