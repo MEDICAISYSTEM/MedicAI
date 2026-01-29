@@ -264,38 +264,6 @@ export default function Conversations() {
                 )}
               </div>
             </>
-                                msg.sender === 'patient' ? 'bg-slate-200' : 'bg-sky-500'
-                              }`}>
-                                {msg.sender === 'patient' ? (
-                                  <User className="w-3.5 h-3.5 text-slate-600" />
-                                ) : (
-                                  <Bot className="w-3.5 h-3.5 text-white" />
-                                )}
-                              </div>
-                              <div>
-                                <div className={`rounded-2xl px-4 py-2.5 ${
-                                  msg.sender === 'patient' 
-                                    ? 'bg-slate-100 text-slate-900 rounded-bl-sm' 
-                                    : 'bg-sky-500 text-white rounded-br-sm'
-                                }`}>
-                                  <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
-                                </div>
-                                <div className={`flex items-center gap-2 mt-1 ${msg.sender === 'patient' ? '' : 'justify-end'}`}>
-                                  <span className="text-xs text-slate-400">
-                                    {format(parseISO(msg.timestamp), "HH:mm", { locale: es })}
-                                  </span>
-                                  {msg.intent && getIntentBadge(msg.intent)}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </ScrollArea>
-                )}
-              </CardContent>
-            </>
           )}
         </Card>
       </div>
