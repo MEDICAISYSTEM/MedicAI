@@ -95,6 +95,8 @@ class ClinicResponse(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     welcome_message: Optional[str] = None
+    consultation_price: Optional[float] = None
+    consultation_currency: Optional[str] = "MXN"
     is_active: bool
     subscription_status: str
     subscription_start: Optional[str] = None
@@ -112,6 +114,8 @@ class ClinicCreate(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     welcome_message: Optional[str] = None
+    consultation_price: Optional[float] = None
+    consultation_currency: Optional[str] = "MXN"
     notes: Optional[str] = None
 
 class ClinicUpdate(BaseModel):
@@ -122,6 +126,8 @@ class ClinicUpdate(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     welcome_message: Optional[str] = None
+    consultation_price: Optional[float] = None
+    consultation_currency: Optional[str] = None
     is_active: Optional[bool] = None
     subscription_status: Optional[str] = None
     subscription_end: Optional[str] = None
