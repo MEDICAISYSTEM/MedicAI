@@ -1614,14 +1614,15 @@ Responde de forma natural y concisa en español:"""
         # Process with Gemini AI
         emergent_key = os.environ.get('EMERGENT_LLM_KEY')
         
+        # Use consistent session_id for the entire conversation (not per message)
         chat = LlmChat(
             api_key=emergent_key,
-            session_id=f"{conv_id}_msg_{len(history_result.data)}",
+            session_id=f"medicai_{conv_id}",
             system_message=system_prompt
         )
         chat.with_model("gemini", "gemini-3-flash-preview")
         
-        user_msg = UserMessage(text=f"Mensaje actual del paciente: {content}")
+        user_msg = UserMessage(text=content)
         ai_response = await chat.send_message(user_msg)
         
         # Detect and extract patient name if provided
