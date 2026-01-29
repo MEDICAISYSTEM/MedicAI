@@ -1272,7 +1272,9 @@ async def whatsapp_webhook(message: WebhookMessage):
         
         phone = message.phone
         content = message.message
+        original_content = content  # Keep original for logging
         timestamp = message.timestamp or datetime.now(timezone.utc).isoformat()
+        is_first_contact = False  # Flag to track if this is first message with code
         
         # Check if message contains a clinic code (format: #CODIGO or Ref:CODIGO or (CODIGO))
         clinic_id = None
@@ -1296,41 +1298,33 @@ async def whatsapp_webhook(message: WebhookMessage):
             if clinic_result.data:
                 clinic = clinic_result.data[0]
                 clinic_id = clinic["id"]
+                is_first_contact = True
                 # Remove the code from message for natural conversation (all formats)
                 content = re.sub(r'\(#[A-Za-z0-9]{3,10}\)', '', content).strip()
                 content = re.sub(r'#[A-Za-z0-9]{3,10}\b', '', content).strip()
                 content = re.sub(r'Ref:\s*[A-Za-z0-9]{3,10}\b', '', content, flags=re.IGNORECASE).strip()
-                if not content:
-                    # Just the code/greeting, send personalized welcome message
-                    welcome = clinic.get("welcome_message") or f"¡Hola! Soy el asistente del {clinic['name']}. ¿En qué puedo ayudarte hoy?"
-                    return {
-                        "success": True,
-                        "response": welcome,
-                        "intent": "greeting",
-                        "clinic_id": clinic_id,
-                        "phone": phone
-                    }
         
-        # Check if patient exists (with their associated clinic)
-        patient_result = supabase.table("patients").select("*, clinic_id").eq("phone", phone).execute()
+        # STEP 1: Check if patient exists (ALWAYS do this first)
+        patient_result = supabase.table("patients").select("*").eq("phone", phone).execute()
         
         if patient_result.data:
             patient = patient_result.data[0]
             patient_id = patient["id"]
             
-            # If patient already has a clinic, use that
+            # If patient already has a clinic, use that (for returning patients)
             if not clinic_id and patient.get("clinic_id"):
                 clinic_id = patient["clinic_id"]
-                clinic_result = supabase.table("clinics").select("*").eq("id", clinic_id).execute()
+                clinic_result = supabase.table("clinics").select("*").eq("id", clinic_id).eq("is_active", True).execute()
                 if clinic_result.data:
                     clinic = clinic_result.data[0]
+                    logger.info(f"Returning patient {phone} linked to clinic {clinic_id}")
             
             # Update last interaction
             supabase.table("patients").update({
                 "last_interaction": timestamp
             }).eq("id", patient_id).execute()
         else:
-            # New patient - need clinic_id
+            # New patient - need clinic_id from the message code
             if not clinic_id:
                 # No clinic identified - ask to use a valid link
                 return {
@@ -1352,8 +1346,9 @@ async def whatsapp_webhook(message: WebhookMessage):
             }
             supabase.table("patients").insert(new_patient).execute()
             patient = new_patient
+            logger.info(f"New patient {phone} created for clinic {clinic_id}")
         
-        # If still no clinic, return error
+        # If still no clinic after all checks, return error
         if not clinic_id or not clinic:
             return {
                 "success": False,
