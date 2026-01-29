@@ -457,6 +457,32 @@ export default function SuperAdmin() {
               />
             </div>
             
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Precio de consulta</Label>
+                <Input
+                  type="number"
+                  value={clinicForm.consultation_price}
+                  onChange={(e) => setClinicForm({ ...clinicForm, consultation_price: e.target.value })}
+                  placeholder="500"
+                  className="input-base"
+                />
+                <p className="text-xs text-slate-500">El bot usará este precio cuando pregunten por costos</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Moneda</Label>
+                <select
+                  value={clinicForm.consultation_currency}
+                  onChange={(e) => setClinicForm({ ...clinicForm, consultation_currency: e.target.value })}
+                  className="input-base w-full h-10 rounded-md border border-slate-200 px-3"
+                >
+                  <option value="MXN">MXN (Pesos mexicanos)</option>
+                  <option value="USD">USD (Dólares)</option>
+                  <option value="EUR">EUR (Euros)</option>
+                </select>
+              </div>
+            </div>
+            
             <div className="space-y-2">
               <Label>Notas internas (solo para ti)</Label>
               <Textarea
