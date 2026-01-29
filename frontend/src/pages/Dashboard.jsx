@@ -515,7 +515,7 @@ export default function Dashboard() {
 
       {/* Consultation Note Dialog */}
       <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Stethoscope className="w-5 h-5 text-sky-500" />
@@ -538,6 +538,72 @@ export default function Dashboard() {
                     {format(parseISO(selectedAppointment.date), "d MMM yyyy", { locale: es })} • {selectedAppointment.time} • {selectedAppointment.reason}
                   </p>
                 </div>
+              </div>
+              
+              {/* Medical History / Antecedentes - NUEVO */}
+              <div className="p-4 bg-red-50 border border-red-100 rounded-xl">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold text-slate-800 flex items-center gap-2 text-sm">
+                    <Heart className="w-4 h-4 text-red-500" />
+                    Antecedentes Médicos
+                  </h4>
+                  {loadingMedicalRecord ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                  ) : (!medicalRecord?.blood_type && !medicalRecord?.allergies && !medicalRecord?.pathologies) ? (
+                    <Badge className="badge-warning text-xs">Primera consulta</Badge>
+                  ) : (
+                    <Badge className="badge-success text-xs">Expediente registrado</Badge>
+                  )}
+                </div>
+                
+                {loadingMedicalRecord ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600 flex items-center gap-1">
+                        <Droplet className="w-3 h-3 text-red-500" />
+                        Tipo de sangre
+                      </Label>
+                      <Select 
+                        value={medicalRecord?.blood_type || ""} 
+                        onValueChange={(value) => setMedicalRecord({ ...medicalRecord, blood_type: value })}
+                      >
+                        <SelectTrigger className="h-8 text-sm bg-white">
+                          <SelectValue placeholder="Seleccionar" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BLOOD_TYPES.map((type) => (
+                            <SelectItem key={type} value={type}>{type}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 text-amber-500" />
+                        Alergias
+                      </Label>
+                      <Input
+                        value={medicalRecord?.allergies || ""}
+                        onChange={(e) => setMedicalRecord({ ...medicalRecord, allergies: e.target.value })}
+                        placeholder="Ej: Penicilina..."
+                        className="h-8 text-sm bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Patologías</Label>
+                      <Input
+                        value={medicalRecord?.pathologies || ""}
+                        onChange={(e) => setMedicalRecord({ ...medicalRecord, pathologies: e.target.value })}
+                        placeholder="Ej: Diabetes..."
+                        className="h-8 text-sm bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
               
               {/* Note Form */}
