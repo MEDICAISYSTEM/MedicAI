@@ -101,6 +101,8 @@ export default function SuperAdmin() {
         email: clinic.email || "",
         address: clinic.address || "",
         welcome_message: clinic.welcome_message || "",
+        consultation_price: clinic.consultation_price || "",
+        consultation_currency: clinic.consultation_currency || "MXN",
         notes: clinic.notes || ""
       });
     } else {
@@ -114,6 +116,8 @@ export default function SuperAdmin() {
         email: "",
         address: "",
         welcome_message: "",
+        consultation_price: "",
+        consultation_currency: "MXN",
         notes: ""
       });
     }
