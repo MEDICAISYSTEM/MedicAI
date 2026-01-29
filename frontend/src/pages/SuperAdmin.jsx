@@ -59,6 +59,8 @@ export default function SuperAdmin() {
     email: "",
     address: "",
     welcome_message: "",
+    consultation_price: "",
+    consultation_currency: "MXN",
     notes: ""
   });
   
