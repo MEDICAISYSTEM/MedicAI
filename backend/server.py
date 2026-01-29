@@ -1528,20 +1528,27 @@ async def whatsapp_webhook(message: WebhookMessage):
             for slot in availability_info
         ]) if availability_info else "Horarios no disponibles actualmente."
         
-        # Build conversation history for AI context
+        # Build conversation history for AI context - format more clearly
         conversation_history = ""
-        for msg in history_result.data:
-            role = "Paciente" if msg["sender"] == "patient" else "Asistente"
-            conversation_history += f"{role}: {msg['content']}\n"
-        
-        # Add current message
-        conversation_history += f"Paciente: {content}\n"
+        if history_result.data:
+            for msg in history_result.data[-10:]:  # Last 10 messages max for clarity
+                role = "PACIENTE" if msg["sender"] == "patient" else "ASISTENTE"
+                conversation_history += f"{role}: {msg['content']}\n\n"
         
         # Get today's date for appointment context
         from datetime import date
         today = date.today()
         today_str = today.strftime("%Y-%m-%d")
         day_name = days[today.weekday() + 1 if today.weekday() < 6 else 0]
+        
+        # Calculate next 7 days for reference
+        from datetime import timedelta
+        next_days = []
+        for i in range(7):
+            d = today + timedelta(days=i)
+            day_idx = d.weekday() + 1 if d.weekday() < 6 else 0
+            next_days.append(f"{d.strftime('%Y-%m-%d')} ({days[day_idx]})")
+        next_days_str = ", ".join(next_days)
         
         # Doctor/Clinic info for personalized response
         doctor_name = clinic.get('name', 'el doctor')
@@ -1552,50 +1559,57 @@ async def whatsapp_webhook(message: WebhookMessage):
         
         # Build price info
         if consultation_price:
-            price_info = f"Costo de consulta: ${consultation_price:.0f} {consultation_currency}"
+            price_info = f"${consultation_price:.0f} {consultation_currency}"
         else:
-            price_info = "Costo de consulta: No disponible (el paciente debe consultar directamente en el consultorio)"
+            price_info = "Consultar en consultorio"
         
-        # System prompt for medical AI assistant
-        system_prompt = f"""Eres el asistente virtual del {doctor_name} en {clinic_name}. Tu rol es EXCLUSIVAMENTE administrativo.
+        # Check if patient already has an upcoming appointment
+        existing_apt_query = supabase.table("appointments").select("*").eq("patient_id", patient_id).eq("clinic_id", clinic_id).gte("date", today_str).eq("status", "confirmed").execute()
+        has_pending_apt = len(existing_apt_query.data) > 0 if existing_apt_query.data else False
+        pending_apt_info = ""
+        if has_pending_apt:
+            apt = existing_apt_query.data[0]
+            pending_apt_info = f"\n⚠️ NOTA: Este paciente YA tiene una cita programada para el {apt['date']} a las {apt['time']}. Motivo: {apt.get('reason', 'No especificado')}"
+        
+        # Simplified and clearer system prompt
+        system_prompt = f"""Eres el asistente virtual de {doctor_name}. Solo ayudas con citas y consultas administrativas.
 
-REGLAS ESTRICTAS:
-1. NUNCA des diagnósticos médicos ni recomendaciones de tratamiento
-2. NUNCA recetes medicamentos ni des consejos de salud específicos
-3. Solo puedes ayudar con: agendar citas, consultar precios, informar horarios, y atender urgencias administrativas
-4. Si te preguntan por precios y NO hay precio configurado, indica que deben consultar directamente en el consultorio
-5. NUNCA inventes precios - solo usa la información que tienes disponible
-
-INFORMACIÓN DEL CONSULTORIO:
-Doctor: {doctor_name}
-{f'Especialidad: {specialty}' if specialty else ''}
-{price_info}
-Fecha actual: {today_str} ({day_name})
-Horarios disponibles:
+DATOS DEL CONSULTORIO:
+- Doctor: {doctor_name}
+- Especialidad: {specialty or 'General'}
+- Precio consulta: {price_info}
+- Hoy es: {today_str} ({day_name})
+- Próximos días: {next_days_str}
+- Horarios disponibles:
 {availability_text}
 
-PACIENTE ACTUAL:
-- Nombre: {patient.get('name') or 'No registrado'}
-- Teléfono: {phone}
+DATOS DEL PACIENTE:
+- Nombre: {patient.get('name') or '❌ NO REGISTRADO - PEDIR NOMBRE'}
+- Teléfono: {phone}{pending_apt_info}
 
-FLUJO DE CONVERSACIÓN:
-1. Si el paciente no tiene nombre registrado, solicita su nombre amablemente PRIMERO
-2. Para agendar cita: pide fecha, hora y motivo de consulta
-3. Cuando el paciente CONFIRME la cita (diga "sí", "confirmo", "de acuerdo", "ok", "perfecto"), responde EXACTAMENTE con este formato:
-   [CITA_CONFIRMADA]
-   Fecha: YYYY-MM-DD
-   Hora: HH:MM
-   Motivo: (motivo de la cita)
-   Nombre: (nombre del paciente)
-   [/CITA_CONFIRMADA]
-   Y luego un mensaje amable confirmando la cita con el {doctor_name}.
-4. Si detectas una URGENCIA médica (dolor intenso, sangrado, emergencia), responde con [URGENCIA] al inicio.
-5. Si el paciente proporciona su nombre, responde con [NOMBRE: nombre_del_paciente] al inicio.
+REGLAS IMPORTANTES:
+1. Si NO tienes el nombre del paciente, pídelo ANTES de agendar
+2. Para agendar necesitas: fecha, hora y motivo
+3. Confirma los datos ANTES de crear la cita
+4. NO inventes información ni des diagnósticos médicos
+5. Sé breve y directo en tus respuestas
 
-HISTORIAL DE CONVERSACIÓN:
+CUANDO EL PACIENTE CONFIRME LA CITA (diga "sí", "confirmo", "ok", "dale"), responde con:
+[CITA_CONFIRMADA]
+Fecha: YYYY-MM-DD
+Hora: HH:MM
+Motivo: (el motivo)
+Nombre: (nombre del paciente)
+[/CITA_CONFIRMADA]
+✅ ¡Listo! Tu cita quedó agendada para el [fecha] a las [hora].
+
+Si el paciente da su nombre por primera vez, incluye al inicio: [NOMBRE: nombre_completo]
+
+HISTORIAL DE LA CONVERSACIÓN:
 {conversation_history}
+PACIENTE: {content}
 
-RESPONDE EN ESPAÑOL. Sé conciso pero amable. Recuerda el contexto de la conversación."""
+Responde de forma natural y concisa en español:"""
 
         # Process with Gemini AI
         emergent_key = os.environ.get('EMERGENT_LLM_KEY')
