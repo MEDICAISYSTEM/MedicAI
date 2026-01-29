@@ -77,7 +77,7 @@ export default function Conversations() {
   };
 
   return (
-    <div className="h-full flex flex-col" data-testid="conversations-page">
+    <div className="h-[calc(100vh-140px)] flex flex-col" data-testid="conversations-page">
       {/* Header */}
       <div className="flex-shrink-0 mb-4">
         <div className="flex items-center justify-between">
