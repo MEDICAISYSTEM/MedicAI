@@ -1682,10 +1682,14 @@ Responde como secretaria médica profesional:"""
         # Process with Gemini AI
         emergent_key = os.environ.get('EMERGENT_LLM_KEY')
         
-        # Use consistent session_id for the entire conversation
+        # Use UNIQUE session_id per message to prevent stale memory
+        # The AI should rely ONLY on the system prompt data (which is fresh from DB)
+        import random
+        unique_session = f"medicai_{conv_id}_{random.randint(10000, 99999)}"
+        
         chat = LlmChat(
             api_key=emergent_key,
-            session_id=f"medicai_{conv_id}",
+            session_id=unique_session,
             system_message=system_prompt
         )
         chat.with_model("gemini", "gemini-3-flash-preview")
