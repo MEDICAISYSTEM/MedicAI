@@ -38,7 +38,8 @@ import {
   RefreshCw,
   Heart,
   Droplet,
-  AlertCircle
+  AlertCircle,
+  Check
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
