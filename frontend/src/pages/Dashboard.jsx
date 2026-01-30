@@ -190,6 +190,16 @@ export default function Dashboard() {
     }
   };
 
+  const handleResolveAlert = async (alertId) => {
+    try {
+      await updateAlert(alertId, { status: "resolved" });
+      setRecentAlerts(prev => prev.filter(a => a.id !== alertId));
+      toast.success("Alerta marcada como resuelta");
+    } catch (error) {
+      toast.error("Error al resolver la alerta");
+    }
+  };
+
   const handleSaveConsultationNote = async () => {
     if (!consultationNote.symptoms && !consultationNote.diagnosis && !consultationNote.treatment && !consultationNote.observations) {
       toast.error("Agrega al menos un campo a la nota");
