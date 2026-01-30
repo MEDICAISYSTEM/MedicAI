@@ -1174,8 +1174,14 @@ async def get_conversation(conversation_id: str, admin: dict = Depends(get_curre
 # ============ ALERTS ENDPOINTS ============
 
 @api_router.get("/alerts", response_model=List[AlertResponse])
-async def get_alerts(status: Optional[str] = None, admin: dict = Depends(get_current_admin)):
-    """Get alerts with optional status filter (filtered by clinic for non-super-admins)"""
+async def get_alerts(
+    status: Optional[str] = None, 
+    show_all: Optional[bool] = False,
+    admin: dict = Depends(get_current_admin)
+):
+    """Get alerts with optional status filter (filtered by clinic for non-super-admins)
+    By default only shows today's alerts and pending alerts. Use show_all=true for all alerts.
+    """
     try:
         query = supabase.table("alerts").select("*, patients(name, phone)")
         
@@ -1189,13 +1195,25 @@ async def get_alerts(status: Optional[str] = None, admin: dict = Depends(get_cur
         result = query.order("created_at", desc=True).execute()
         
         alerts = []
+        today_str = datetime.now(timezone.utc).date().isoformat()
+        
         for alert in result.data:
             patient = alert.pop("patients", {}) or {}
-            alerts.append({
+            alert_data = {
                 **alert,
                 "patient_name": patient.get("name"),
                 "patient_phone": patient.get("phone")
-            })
+            }
+            
+            # If not showing all, filter to only today's alerts or pending ones
+            if not show_all:
+                alert_date = alert.get("created_at", "")[:10]
+                is_today = alert_date == today_str
+                is_pending = alert.get("status") == "pending"
+                if is_today or is_pending:
+                    alerts.append(alert_data)
+            else:
+                alerts.append(alert_data)
         
         return alerts
     except Exception as e:
