@@ -394,7 +394,10 @@ export default function Dashboard() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
               <AlertTriangle className="w-4 h-4 text-amber-500" />
-              Alertas Recientes
+              Alertas del Día
+              {recentAlerts.length > 0 && (
+                <Badge className="badge-warning text-xs">{recentAlerts.length}</Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -408,7 +411,7 @@ export default function Dashboard() {
                 {recentAlerts.map((alert) => (
                   <div 
                     key={alert.id} 
-                    className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-100 rounded-lg"
+                    className="flex items-start gap-2.5 p-2.5 bg-amber-50 border border-amber-100 rounded-lg group"
                   >
                     <div className="w-7 h-7 bg-amber-100 rounded flex items-center justify-center flex-shrink-0">
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
@@ -422,6 +425,15 @@ export default function Dashboard() {
                       </div>
                       <p className="text-xs text-slate-600 truncate">{alert.message}</p>
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleResolveAlert(alert.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                      title="Marcar como resuelta"
+                    >
+                      <Check className="w-4 h-4" />
+                    </Button>
                   </div>
                 ))}
               </div>
