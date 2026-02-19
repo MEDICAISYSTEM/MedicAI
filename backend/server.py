@@ -1809,6 +1809,108 @@ Responde como secretaria médica profesional:"""
             # Clean the response to remove the markup
             ai_response = re.sub(r'\[CITA_CONFIRMADA\].*?\[/CITA_CONFIRMADA\]\s*', '', ai_response, flags=re.DOTALL)
         
+        # ═══════════════════════════════════════════════════════════════
+        # SMART CONFIRMATION DETECTOR (Fallback when AI doesn't generate tag)
+        # ═══════════════════════════════════════════════════════════════
+        if not appointment_created and patient.get('name'):
+            content_lower = content.lower().strip()
+            # Detect confirmation words
+            confirmation_words = ["sí", "si", "confirmo", "confirmar", "ok", "dale", "perfecto", 
+                                  "está bien", "esta bien", "de acuerdo", "acepto", "va", "listo", 
+                                  "correcto", "afirmativo", "claro", "por favor", "adelante"]
+            is_confirmation = any(word in content_lower for word in confirmation_words) and len(content_lower) < 60
+            
+            if is_confirmation:
+                # Look for date/time in the LAST bot message from conversation history
+                # The bot usually proposes: "Tengo disponible 2026-01-30 a las 10:00"
+                last_bot_msg = ""
+                if history_result.data:
+                    for msg in reversed(history_result.data):
+                        if msg.get("sender") == "ai":
+                            last_bot_msg = msg.get("content", "")
+                            break
+                
+                # Also check current AI response for proposed times
+                search_text = last_bot_msg + " " + ai_response
+                
+                # Extract date - look for YYYY-MM-DD format
+                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', search_text)
+                
+                # Extract time - look for HH:MM format
+                time_match = re.search(r'(\d{1,2}):(\d{2})', search_text)
+                
+                # Also try to find "mañana", "hoy" patterns
+                target_date = None
+                target_time = None
+                
+                if date_match:
+                    target_date = date_match.group(1)
+                elif 'mañana' in search_text.lower():
+                    target_date = (today + timedelta(days=1)).strftime('%Y-%m-%d')
+                elif 'hoy' in search_text.lower():
+                    target_date = today.strftime('%Y-%m-%d')
+                
+                if time_match:
+                    hour = int(time_match.group(1))
+                    minute = time_match.group(2)
+                    # Handle PM times
+                    if ('pm' in search_text.lower() or 'p.m' in search_text.lower()) and hour < 12:
+                        hour += 12
+                    target_time = f"{hour:02d}:{minute}"
+                
+                # Try to extract reason from conversation
+                reason = "Consulta general"
+                reason_patterns = [
+                    r'(?:motivo|por|para)[:\s]+([^\.]+?)(?:\.|$)',
+                    r'(?:dolor|consulta|revisión|chequeo|cita)[:\s]*(?:de|por)?\s*([^\.]+?)(?:\.|$)'
+                ]
+                for pattern in reason_patterns:
+                    reason_match = re.search(pattern, search_text.lower())
+                    if reason_match:
+                        reason = reason_match.group(1).strip().capitalize()[:50]
+                        break
+                
+                if target_date and target_time:
+                    # Check for duplicates
+                    dup_check = supabase.table("appointments").select("id").eq("patient_id", patient_id).eq("clinic_id", clinic_id).eq("date", target_date).eq("time", target_time).eq("status", "confirmed").execute()
+                    
+                    if not dup_check.data:
+                        apt_id = str(uuid.uuid4())
+                        new_apt = {
+                            "id": apt_id,
+                            "patient_id": patient_id,
+                            "clinic_id": clinic_id,
+                            "date": target_date,
+                            "time": target_time,
+                            "reason": reason,
+                            "status": "confirmed",
+                            "priority": "normal",
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        supabase.table("appointments").insert(new_apt).execute()
+                        appointment_created = True
+                        logger.info(f"Appointment created (smart detector): {apt_id} for {patient.get('name')} at {target_date} {target_time}")
+                        
+                        # Override AI response with confirmation
+                        ai_response = f"Perfecto. Su cita ha quedado confirmada para el {target_date} a las {target_time} con el {doctor_name}. Le esperamos."
+                        
+                        # WebSocket notification
+                        await manager.broadcast({
+                            "type": "new_appointment",
+                            "clinic_id": clinic_id,
+                            "data": {
+                                "id": apt_id,
+                                "patient_name": patient.get('name'),
+                                "patient_phone": phone,
+                                "date": target_date,
+                                "time": target_time,
+                                "reason": reason,
+                                "doctor_name": doctor_name
+                            }
+                        })
+                    else:
+                        logger.warning(f"Duplicate prevented (smart detector): {patient_id} at {target_date} {target_time}")
+        
         # Detect intent from AI response and original message
         intent = "general"
         content_lower = content.lower()
