@@ -381,8 +381,8 @@ export default function Dashboard() {
           <CardContent>
             {todayAppointments.length === 0 ? (
               <div className="text-center py-6 text-slate-500">
-                <Calendar className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                <p className="text-sm">Sin citas para hoy</p>
+                <CalendarIcon className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                <p className="text-sm">Sin citas para {isToday ? "hoy" : "este día"}</p>
               </div>
             ) : (
               <div className="space-y-2">
