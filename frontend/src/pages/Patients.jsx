@@ -161,6 +161,35 @@ export default function Patients() {
     }
   };
 
+  const handleDeleteClick = (patient, e) => {
+    e.stopPropagation(); // Prevent opening the record dialog
+    setPatientToDelete(patient);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!patientToDelete) return;
+    
+    setDeleting(true);
+    try {
+      await deletePatient(patientToDelete.id);
+      toast.success(`Paciente ${patientToDelete.name || 'eliminado'} correctamente`);
+      setDeleteDialogOpen(false);
+      setPatientToDelete(null);
+      // Close record dialog if open
+      if (selectedPatient?.id === patientToDelete.id) {
+        setRecordDialogOpen(false);
+      }
+      // Refresh patient list
+      fetchPatients();
+    } catch (error) {
+      toast.error("Error al eliminar el paciente");
+      console.error("Delete error:", error);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const filteredPatients = patients.filter((patient) => {
     const matchesSearch = 
       patient.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
