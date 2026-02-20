@@ -1563,26 +1563,35 @@ async def whatsapp_webhook(message: WebhookMessage):
         our_day_index = (python_weekday + 1) % 7
         day_name = days[our_day_index]
         
-        # Calculate next 7 days with their day names
+        # Get current time for more context
+        from datetime import datetime as dt_class
+        current_time = dt_class.now().strftime("%H:%M")
+        
+        # Calculate next 7 days with their day names - MORE EXPLICIT
         from datetime import timedelta
         next_days_info = []
         for i in range(7):
             d = today + timedelta(days=i)
             python_wd = d.weekday()
             day_idx = (python_wd + 1) % 7
+            day_label = "HOY" if i == 0 else ("MAÑANA" if i == 1 else days[day_idx])
             next_days_info.append({
                 "date": d.strftime('%Y-%m-%d'),
                 "day_name": days[day_idx],
+                "day_label": day_label,
                 "day_num": day_idx
             })
         
-        # Build REAL available slots for next 7 days
-        available_slots_text = "HORARIOS DISPONIBLES REALES:\n"
+        # Build REAL available slots for next 7 days - WITH EXPLICIT LABELS
+        available_slots_text = "CALENDARIO DE DISPONIBILIDAD (próximos 7 días):\n"
+        available_slots_text += f"⚡ REFERENCIA: Hoy es {day_name.upper()} {today_str}\n\n"
         for day_info in next_days_info:
             day_availability = [slot for slot in availability_info if slot.get('day_of_week') == day_info['day_num']]
             if day_availability:
                 slots_str = ", ".join([f"{s['start_time']}-{s['end_time']}" for s in day_availability])
-                available_slots_text += f"- {day_info['date']} ({day_info['day_name']}): {slots_str}\n"
+                available_slots_text += f"📅 {day_info['date']} = {day_info['day_label']} ({day_info['day_name']}): {slots_str}\n"
+            else:
+                available_slots_text += f"❌ {day_info['date']} = {day_info['day_label']} ({day_info['day_name']}): SIN DISPONIBILIDAD\n"
         
         if not availability_info:
             available_slots_text = "HORARIOS: No hay horarios configurados. Solicitar al paciente que llame al consultorio.\n"
@@ -1613,12 +1622,19 @@ async def whatsapp_webhook(message: WebhookMessage):
 Tu única función es gestionar la agenda de citas de manera precisa y consistente.
 
 ═══════════════════════════════════════════════════════════════
-INFORMACIÓN DEL SISTEMA
+INFORMACIÓN DEL SISTEMA (¡DATOS REALES, NO INVENTES!)
 ═══════════════════════════════════════════════════════════════
 Doctor: {doctor_name}
 Especialidad: {specialty or 'Medicina General'}
 Precio consulta: {price_info}
-Fecha actual: {today_str} ({day_name})
+
+⏰ FECHA Y HORA ACTUAL (REAL DEL SERVIDOR):
+   - Fecha: {today_str}
+   - Día: {day_name.upper()}
+   - Hora: {current_time}
+   ⚠️ IMPORTANTE: Hoy es {day_name.upper()}. Si el paciente dice "mañana", 
+   eso significa {next_days_info[1]['date']} ({next_days_info[1]['day_name']}).
+   NO confundas los días. Usa SOLO las fechas del calendario abajo.
 
 {available_slots_text}
 
