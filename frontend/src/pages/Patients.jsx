@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getPatients, updatePatient, getMedicalRecord, updateMedicalRecord, getConsultationNotes, createConsultationNote } from "../lib/api";
+import { getPatients, updatePatient, getMedicalRecord, updateMedicalRecord, getConsultationNotes, createConsultationNote, deletePatient } from "../lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -14,7 +14,19 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
+  DialogDescription,
 } from "../components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -34,7 +46,8 @@ import {
   Plus,
   User,
   Droplet,
-  Save
+  Save,
+  Trash2
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
