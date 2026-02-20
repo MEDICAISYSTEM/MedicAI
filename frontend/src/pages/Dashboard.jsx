@@ -7,6 +7,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
+import { Calendar } from "../components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +25,7 @@ import {
 } from "../components/ui/select";
 import { 
   Users, 
-  Calendar, 
+  Calendar as CalendarIcon, 
   CalendarCheck, 
   AlertTriangle,
   TrendingUp,
@@ -39,9 +41,11 @@ import {
   Heart,
   Droplet,
   AlertCircle,
-  Check
+  Check,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, addDays, subDays } from "date-fns";
 import { es } from "date-fns/locale";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
