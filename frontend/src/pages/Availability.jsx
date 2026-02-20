@@ -67,7 +67,7 @@ export default function Availability() {
     }
   };
 
-  const handleOpenDialog = (slot = null) => {
+  const handleOpenDialog = (slot = null, defaultDay = null) => {
     if (slot) {
       setEditingSlot(slot);
       setFormData({
@@ -79,7 +79,7 @@ export default function Availability() {
     } else {
       setEditingSlot(null);
       setFormData({
-        day_of_week: 1,
+        day_of_week: defaultDay !== null ? defaultDay : 1,
         start_time: "09:00",
         end_time: "17:00",
         is_available: true,

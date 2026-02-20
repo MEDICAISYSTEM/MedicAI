@@ -1553,18 +1553,23 @@ async def whatsapp_webhook(message: WebhookMessage):
                 role = "PACIENTE" if msg["sender"] == "patient" else "ASISTENTE"
                 conversation_history += f"{role}: {msg['content']}\n\n"
         
-        # Get today's date for appointment context
+        # Get today's date for appointment context - BE VERY EXPLICIT
         from datetime import date
         today = date.today()
         today_str = today.strftime("%Y-%m-%d")
-        day_name = days[today.weekday() + 1 if today.weekday() < 6 else 0]
+        # Python weekday(): Monday=0, Sunday=6. Our array: Domingo=0, Lunes=1...Sábado=6
+        python_weekday = today.weekday()  # 0=Monday, 1=Tuesday... 6=Sunday
+        # Convert to our format: Sunday=0, Monday=1... Saturday=6
+        our_day_index = (python_weekday + 1) % 7
+        day_name = days[our_day_index]
         
         # Calculate next 7 days with their day names
         from datetime import timedelta
         next_days_info = []
         for i in range(7):
             d = today + timedelta(days=i)
-            day_idx = d.weekday() + 1 if d.weekday() < 6 else 0
+            python_wd = d.weekday()
+            day_idx = (python_wd + 1) % 7
             next_days_info.append({
                 "date": d.strftime('%Y-%m-%d'),
                 "day_name": days[day_idx],
