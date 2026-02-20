@@ -47,6 +47,7 @@ export const getDashboardStats = () => api.get("/dashboard/stats");
 export const getPatients = () => api.get("/patients");
 export const getPatient = (id) => api.get(`/patients/${id}`);
 export const updatePatient = (id, data) => api.put(`/patients/${id}`, data);
+export const deletePatient = (id) => api.delete(`/patients/${id}`);
 
 // Medical Records
 export const getMedicalRecord = (patientId) => api.get(`/patients/${patientId}/medical-record`);
