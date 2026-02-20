@@ -76,10 +76,10 @@ export default function Dashboard() {
   const fetchData = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
     try {
-      const today = format(new Date(), "yyyy-MM-dd");
+      const dateStr = format(selectedDate, "yyyy-MM-dd");
       const [statsRes, appointmentsRes, alertsRes] = await Promise.all([
         getDashboardStats(),
-        getAppointments({ date: today }),
+        getAppointments({ date: dateStr }),
         getAlerts({ status: "pending" }),
       ]);
       
@@ -95,7 +95,7 @@ export default function Dashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [selectedDate]);
 
   // WebSocket connection for real-time notifications
   useEffect(() => {
