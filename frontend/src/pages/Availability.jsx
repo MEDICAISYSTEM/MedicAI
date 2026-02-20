@@ -172,10 +172,7 @@ export default function Availability() {
                       variant="ghost" 
                       size="sm" 
                       className="mt-2 text-sky-500"
-                      onClick={() => {
-                        setFormData({ ...formData, day_of_week: day.value });
-                        handleOpenDialog();
-                      }}
+                      onClick={() => handleOpenDialog(null, day.value)}
                     >
                       <Plus className="w-3 h-3 mr-1" />
                       Agregar
