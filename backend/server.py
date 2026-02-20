@@ -725,6 +725,63 @@ async def update_patient(patient_id: str, update_data: PatientUpdate, admin: dic
         logger.error(f"Update patient error: {e}")
         raise HTTPException(status_code=500, detail="Failed to update patient")
 
+@api_router.delete("/patients/{patient_id}")
+async def delete_patient(patient_id: str, admin: dict = Depends(get_current_admin)):
+    """Delete a patient and all associated data (verified by clinic ownership)"""
+    try:
+        clinic_id = admin.get("clinic_id")
+        
+        # Verify patient belongs to admin's clinic
+        verify_query = supabase.table("patients").select("id, name, phone").eq("id", patient_id)
+        if not admin.get("is_super_admin") and clinic_id:
+            verify_query = verify_query.eq("clinic_id", clinic_id)
+        verify_result = verify_query.execute()
+        
+        if not verify_result.data:
+            raise HTTPException(status_code=404, detail="Paciente no encontrado")
+        
+        patient_info = verify_result.data[0]
+        logger.info(f"Deleting patient {patient_id} ({patient_info.get('name', 'N/A')}) by admin {admin.get('id')}")
+        
+        # Delete all related data in order (cascade)
+        # 1. Delete messages (linked to conversations)
+        conv_result = supabase.table("conversations").select("id").eq("patient_id", patient_id).execute()
+        if conv_result.data:
+            conv_ids = [c["id"] for c in conv_result.data]
+            for conv_id in conv_ids:
+                supabase.table("messages").delete().eq("conversation_id", conv_id).execute()
+        
+        # 2. Delete conversations
+        supabase.table("conversations").delete().eq("patient_id", patient_id).execute()
+        
+        # 3. Delete appointments
+        supabase.table("appointments").delete().eq("patient_id", patient_id).execute()
+        
+        # 4. Delete consultation notes
+        supabase.table("consultation_notes").delete().eq("patient_id", patient_id).execute()
+        
+        # 5. Delete medical records
+        supabase.table("medical_records").delete().eq("patient_id", patient_id).execute()
+        
+        # 6. Delete alerts
+        supabase.table("alerts").delete().eq("patient_id", patient_id).execute()
+        
+        # 7. Finally delete the patient
+        supabase.table("patients").delete().eq("id", patient_id).execute()
+        
+        logger.info(f"Patient {patient_id} and all associated data deleted successfully")
+        
+        return {
+            "success": True,
+            "message": f"Paciente {patient_info.get('name', 'desconocido')} eliminado correctamente",
+            "deleted_patient_id": patient_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete patient error: {e}")
+        raise HTTPException(status_code=500, detail="Error al eliminar el paciente")
+
 # ============ MEDICAL RECORDS ENDPOINTS ============
 
 @api_router.get("/patients/{patient_id}/medical-record", response_model=MedicalRecordResponse)
