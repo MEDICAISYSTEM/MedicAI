@@ -56,6 +56,8 @@ export default function Dashboard() {
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const wsRef = useRef(null);
   
   // Consultation note modal
