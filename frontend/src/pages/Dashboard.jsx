@@ -246,7 +246,7 @@ export default function Dashboard() {
     {
       title: "Hoy",
       value: stats?.total_appointments_today || 0,
-      icon: Calendar,
+      icon: CalendarIcon,
       bgColor: "bg-emerald-50",
       iconColor: "text-emerald-500",
     },
@@ -283,15 +283,33 @@ export default function Dashboard() {
   const getStatusBadge = (status) => {
     switch (status) {
       case 'confirmed':
-        return <Badge className="badge-success text-xs">Confirmada</Badge>;
+        return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Confirmada</Badge>;
       case 'cancelled':
-        return <Badge className="badge-error text-xs">Cancelada</Badge>;
+        return <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">Cancelada</Badge>;
       case 'pending':
-        return <Badge className="badge-warning text-xs">Pendiente</Badge>;
+        return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">Pendiente</Badge>;
+      case 'completed':
+        return <Badge className="bg-sky-100 text-sky-700 border-sky-200 text-xs">Completada</Badge>;
+      case 'no_show':
+        return <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-xs">No asistió</Badge>;
       default:
-        return <Badge className="badge-neutral text-xs">{status}</Badge>;
+        return <Badge className="bg-slate-100 text-slate-600 text-xs">{status}</Badge>;
     }
   };
+
+  const handlePreviousDay = () => {
+    setSelectedDate(prev => subDays(prev, 1));
+  };
+
+  const handleNextDay = () => {
+    setSelectedDate(prev => addDays(prev, 1));
+  };
+
+  const handleToday = () => {
+    setSelectedDate(new Date());
+  };
+
+  const isToday = format(selectedDate, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
 
   if (loading) {
     return (
