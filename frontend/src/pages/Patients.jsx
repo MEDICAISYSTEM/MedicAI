@@ -394,6 +394,18 @@ export default function Patients() {
                         {savingPatient ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                         Guardar datos personales
                       </Button>
+                      <Button 
+                        variant="outline"
+                        className="text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600"
+                        onClick={() => {
+                          setPatientToDelete(selectedPatient);
+                          setDeleteDialogOpen(true);
+                        }}
+                        data-testid="delete-patient-dialog-btn"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Eliminar paciente
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
