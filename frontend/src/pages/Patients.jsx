@@ -75,6 +75,11 @@ export default function Patients() {
     treatment: "",
     observations: ""
   });
+  
+  // Delete confirmation
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [patientToDelete, setPatientToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchPatients();
