@@ -469,14 +469,73 @@ export default function Dashboard() {
       {/* Daily Schedule Table */}
       <Card className="stat-card" data-testid="daily-schedule-card">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
               <CalendarDays className="w-4 h-4 text-violet-500" />
-              Agenda del Día
+              Agenda del {isToday ? "Día" : format(selectedDate, "d 'de' MMMM", { locale: es })}
             </CardTitle>
-            <p className="text-xs text-slate-500">
-              Clic en "Nota" para registrar consulta
-            </p>
+            
+            {/* Date Navigation */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handlePreviousDay}
+                data-testid="prev-day-btn"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-8 px-3 text-sm font-medium"
+                    data-testid="date-picker-btn"
+                  >
+                    <CalendarIcon className="w-4 h-4 mr-2" />
+                    {format(selectedDate, "EEE, d MMM", { locale: es })}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="center">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(date) => {
+                      if (date) {
+                        setSelectedDate(date);
+                        setCalendarOpen(false);
+                      }
+                    }}
+                    locale={es}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleNextDay}
+                data-testid="next-day-btn"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+              
+              {!isToday && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs text-sky-600"
+                  onClick={handleToday}
+                  data-testid="today-btn"
+                >
+                  Hoy
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
