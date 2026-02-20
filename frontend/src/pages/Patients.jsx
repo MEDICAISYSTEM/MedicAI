@@ -597,6 +597,57 @@ export default function Patients() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5" />
+              Eliminar paciente
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                ¿Estás seguro de que deseas eliminar a <strong>{patientToDelete?.name || 'este paciente'}</strong>?
+              </p>
+              <p className="text-red-500 font-medium">
+                Esta acción eliminará permanentemente:
+              </p>
+              <ul className="list-disc list-inside text-sm text-slate-600 space-y-1">
+                <li>Todos los datos del paciente</li>
+                <li>Historial de citas</li>
+                <li>Expediente médico</li>
+                <li>Notas de consulta</li>
+                <li>Conversaciones de WhatsApp</li>
+              </ul>
+              <p className="text-red-600 font-semibold mt-2">
+                Esta acción no se puede deshacer.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+              data-testid="confirm-delete-btn"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Eliminando...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Sí, eliminar
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
