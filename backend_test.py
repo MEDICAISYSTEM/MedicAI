@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import uuid
 
 class MedicAITester:
-    def __init__(self, base_url="https://clinicchat.preview.emergentagent.com"):
+    def __init__(self, base_url="https://medicai-preview.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
         self.admin_id = None
