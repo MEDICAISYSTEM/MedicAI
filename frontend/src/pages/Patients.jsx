@@ -606,23 +606,25 @@ export default function Patients() {
               <Trash2 className="w-5 h-5" />
               Eliminar paciente
             </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <p>
-                ¿Estás seguro de que deseas eliminar a <strong>{patientToDelete?.name || 'este paciente'}</strong>?
-              </p>
-              <p className="text-red-500 font-medium">
-                Esta acción eliminará permanentemente:
-              </p>
-              <ul className="list-disc list-inside text-sm text-slate-600 space-y-1">
-                <li>Todos los datos del paciente</li>
-                <li>Historial de citas</li>
-                <li>Expediente médico</li>
-                <li>Notas de consulta</li>
-                <li>Conversaciones de WhatsApp</li>
-              </ul>
-              <p className="text-red-600 font-semibold mt-2">
-                Esta acción no se puede deshacer.
-              </p>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  ¿Estás seguro de que deseas eliminar a <strong>{patientToDelete?.name || 'este paciente'}</strong>?
+                </p>
+                <p className="text-red-500 font-medium">
+                  Esta acción eliminará permanentemente:
+                </p>
+                <ul className="list-disc list-inside text-sm text-slate-600 space-y-1">
+                  <li>Todos los datos del paciente</li>
+                  <li>Historial de citas</li>
+                  <li>Expediente médico</li>
+                  <li>Notas de consulta</li>
+                  <li>Conversaciones de WhatsApp</li>
+                </ul>
+                <p className="text-red-600 font-semibold mt-2">
+                  Esta acción no se puede deshacer.
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
