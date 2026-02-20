@@ -543,7 +543,9 @@ export default function Dashboard() {
             <div className="text-center py-10 text-slate-500">
               <CalendarDays className="w-12 h-12 mx-auto mb-3 text-slate-300" />
               <p className="font-medium">Sin citas programadas</p>
-              <p className="text-sm">Tu agenda está libre para hoy</p>
+              <p className="text-sm">
+                {isToday ? "Tu agenda está libre para hoy" : `No hay citas para el ${format(selectedDate, "d 'de' MMMM", { locale: es })}`}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
