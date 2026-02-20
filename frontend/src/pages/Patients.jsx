@@ -245,10 +245,21 @@ export default function Patients() {
               {filteredPatients.map((patient) => (
                 <div 
                   key={patient.id} 
-                  className="p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                  className="p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer group relative"
                   onClick={() => handleOpenRecord(patient)}
                   data-testid={`patient-card-${patient.id}`}
                 >
+                  {/* Delete button - shown on hover */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600 hover:bg-red-50"
+                    onClick={(e) => handleDeleteClick(patient, e)}
+                    data-testid={`delete-patient-${patient.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                  
                   <div className="flex items-start gap-3 mb-3">
                     <div className="w-12 h-12 bg-sky-100 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-sky-600 font-semibold">
