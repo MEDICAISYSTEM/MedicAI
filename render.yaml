@@ -28,9 +28,10 @@ services:
     staticPublishPath: ./frontend/build
     envVars:
       - key: NODE_VERSION
-        value: 20.0.0
+        value: 20.9.0
       - key: REACT_APP_BACKEND_URL
         fromService:
           type: web
           name: medicai-backend
           envVarKey: RENDER_EXTERNAL_URL
+
