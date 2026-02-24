@@ -3,7 +3,7 @@ services:
     name: medicai-backend
     env: python
     plan: free
-    buildCommand: "pip install -r backend/requirements.txt && pip install uvicorn fastapi openai"
+    buildCommand: "pip install fastapi uvicorn supabase python-dotenv pydantic requests passlib bcrypt pyjwt email-validator starlette openai httpx"
     startCommand: "cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION
