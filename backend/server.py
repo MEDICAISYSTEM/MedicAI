@@ -339,14 +339,24 @@ async def require_super_admin(admin: dict = Depends(get_current_admin)):
 async def login(credentials: AdminLogin):
     """Admin login endpoint"""
     try:
+        logger.info(f"Login attempt for: {credentials.email}")
+        
+        # Check if supabase client is properly initialized
+        if not supabase_url or not supabase_key:
+            logger.error("Supabase credentials are not set in environment variables!")
+            raise HTTPException(status_code=500, detail="Database configuration error")
+            
         result = supabase.table("admins").select("*").eq("email", credentials.email).execute()
         
         if not result.data:
+            logger.warning(f"Login failed: User {credentials.email} not found in database")
             raise HTTPException(status_code=401, detail="Invalid email or password")
         
         admin = result.data[0]
+        logger.info(f"User found, verifying password...")
         
         if not verify_password(credentials.password, admin["password_hash"]):
+            logger.warning(f"Login failed: Incorrect password for {credentials.email}")
             raise HTTPException(status_code=401, detail="Invalid email or password")
         
         access_token = create_access_token(
