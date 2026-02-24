@@ -1381,7 +1381,6 @@ async def whatsapp_webhook(message: WebhookMessage):
     Now with multi-tenant support - identifies clinic by code
     """
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
         import re
         
         phone = message.phone
@@ -1722,7 +1721,12 @@ FLUJOS OBLIGATORIOS
 5. SOLO si el paciente confirma, responde con el formato de confirmación
 
 📋 PACIENTE CON CITA EXISTENTE:
+1. Primero verifica el nombre del doctor({doctor_name}) con el que va a agendar la cita, verifica si el paciente ya agendo cita con
+el doctor pregunta:
 Mensaje obligatorio: "Tiene una cita programada para [fecha] a las [hora]. ¿Desea mantenerla, cancelarla o reagendarla?"
+NO agendes nada nuevo hasta que el paciente elija.
+2. Si el paciente esta hablando para agendar con un doctor nuevo, del que no tiene cita, pregunta:
+Mensaje obligatorio: "Tiene una cita programada para [fecha] a las [hora] con el doctor. ¿Desea mantenerla, cancelarla o reagendarla?"
 NO agendes nada nuevo hasta que el paciente elija.
 
 📋 CANCELAR CITA:
@@ -1775,23 +1779,23 @@ MENSAJE ACTUAL DEL PACIENTE: {content}
 
 Responde como secretaria médica profesional:"""
 
-        # Process with Gemini AI
-        emergent_key = os.environ.get('EMERGENT_LLM_KEY')
+        # Process with OpenAI (gpt-4o-mini for cost-effectiveness)
+        openai_key = os.environ.get('OPENAI_API_KEY')
         
-        # Use UNIQUE session_id per message to prevent stale memory
-        # The AI should rely ONLY on the system prompt data (which is fresh from DB)
-        import random
-        unique_session = f"medicai_{conv_id}_{random.randint(10000, 99999)}"
-        
-        chat = LlmChat(
-            api_key=emergent_key,
-            session_id=unique_session,
-            system_message=system_prompt
-        )
-        chat.with_model("gemini", "gemini-3-flash-preview")
-        
-        user_msg = UserMessage(text=content)
-        ai_response = await chat.send_message(user_msg)
+        import openai
+        try:
+            client = openai.AsyncOpenAI(api_key=openai_key)
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt}
+                ]
+            )
+            ai_response = response.choices[0].message.content
+            logger.info("OpenAI response generated successfully")
+        except Exception as e:
+            logger.error(f"OpenAI error: {e}")
+            ai_response = "Lo siento, mi sistema está demorando en responder. Por favor intente nuevamente en unos minutos."
         
         # Detect and extract patient name if provided
         import re
