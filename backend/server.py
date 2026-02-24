@@ -57,6 +57,15 @@ manager = ConnectionManager()
 # Create the main app
 app = FastAPI(title="MedicAI API", version="1.0.0")
 
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins for frontend requests
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
@@ -1721,12 +1730,7 @@ FLUJOS OBLIGATORIOS
 5. SOLO si el paciente confirma, responde con el formato de confirmación
 
 📋 PACIENTE CON CITA EXISTENTE:
-1. Primero verifica el nombre del doctor({doctor_name}) con el que va a agendar la cita, verifica si el paciente ya agendo cita con
-el doctor pregunta:
 Mensaje obligatorio: "Tiene una cita programada para [fecha] a las [hora]. ¿Desea mantenerla, cancelarla o reagendarla?"
-NO agendes nada nuevo hasta que el paciente elija.
-2. Si el paciente esta hablando para agendar con un doctor nuevo, del que no tiene cita, pregunta:
-Mensaje obligatorio: "Tiene una cita programada para [fecha] a las [hora] con el doctor. ¿Desea mantenerla, cancelarla o reagendarla?"
 NO agendes nada nuevo hasta que el paciente elija.
 
 📋 CANCELAR CITA:
