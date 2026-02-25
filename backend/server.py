@@ -1805,7 +1805,7 @@ Responde como secretaria médica profesional:"""
             
             def call_gemini():
                 return client.models.generate_content(
-                    model='gemini-1.5-flash',
+                    model='gemini-2.0-flash',
                     contents=system_prompt,
                 )
                 
