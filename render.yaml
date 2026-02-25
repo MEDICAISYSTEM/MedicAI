@@ -3,7 +3,7 @@ services:
     name: medicai-backend
     env: python
     plan: free
-    buildCommand: "pip install fastapi uvicorn supabase python-dotenv pydantic requests passlib bcrypt==3.2.2 pyjwt email-validator starlette google-generativeai httpx"
+    buildCommand: "pip install fastapi uvicorn supabase python-dotenv pydantic requests passlib bcrypt==3.2.2 pyjwt email-validator starlette google-genai httpx"
     startCommand: "cd backend && uvicorn server:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION
