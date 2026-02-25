@@ -1793,22 +1793,22 @@ MENSAJE ACTUAL DEL PACIENTE: {content}
 
 Responde como secretaria médica profesional:"""
 
-        # Process with OpenAI (gpt-4o-mini for cost-effectiveness)
-        openai_key = os.environ.get('OPENAI_API_KEY')
+        # Process with Google Gemini (gemini-1.5-flash for speed and cost-effectiveness)
+        gemini_key = os.environ.get('GEMINI_API_KEY')
         
-        import openai
         try:
-            client = openai.AsyncOpenAI(api_key=openai_key)
-            response = await client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt}
-                ]
-            )
-            ai_response = response.choices[0].message.content
-            logger.info("OpenAI response generated successfully")
+            import google.generativeai as genai
+            genai.configure(api_key=gemini_key)
+            
+            # Using asyncio.to_thread to run the synchronous SDK call without blocking the event loop
+            import asyncio
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = await asyncio.to_thread(model.generate_content, system_prompt)
+            
+            ai_response = response.text
+            logger.info("Gemini response generated successfully")
         except Exception as e:
-            logger.error(f"OpenAI error: {e}")
+            logger.error(f"Gemini error: {e}")
             ai_response = "Lo siento, mi sistema está demorando en responder. Por favor intente nuevamente en unos minutos."
         
         # Detect and extract patient name if provided
