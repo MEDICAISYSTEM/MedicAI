@@ -1797,13 +1797,19 @@ Responde como secretaria médica profesional:"""
         gemini_key = os.environ.get('GEMINI_API_KEY')
         
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
+            from google import genai
+            client = genai.Client(api_key=gemini_key)
             
             # Using asyncio.to_thread to run the synchronous SDK call without blocking the event loop
             import asyncio
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = await asyncio.to_thread(model.generate_content, system_prompt)
+            
+            def call_gemini():
+                return client.models.generate_content(
+                    model='gemini-1.5-flash',
+                    contents=system_prompt,
+                )
+                
+            response = await asyncio.to_thread(call_gemini)
             
             ai_response = response.text
             logger.info("Gemini response generated successfully")
