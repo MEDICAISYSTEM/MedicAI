@@ -1682,10 +1682,14 @@ async def whatsapp_webhook(message: WebhookMessage):
                 role = "PACIENTE" if msg["sender"] == "patient" else "ASISTENTE"
                 conversation_history += f"{role}: {msg['content']}\n\n"
         
-        # Get today's date for appointment context - BE VERY EXPLICIT
-        from datetime import date
-        today = date.today()
+        # Get today's date for appointment context - FORCE LOCAL TIMEZONE (UTC-6)
+        from datetime import datetime as dt_class, timedelta
+        
+        # Hardcode America/Mexico_City offset for reliability
+        local_time_now = dt_class.now(timezone.utc) + timedelta(hours=-6)
+        today = local_time_now.date()
         today_str = today.strftime("%Y-%m-%d")
+        
         # Python weekday(): Monday=0, Sunday=6. Our array: Domingo=0, Lunes=1...Sábado=6
         python_weekday = today.weekday()  # 0=Monday, 1=Tuesday... 6=Sunday
         # Convert to our format: Sunday=0, Monday=1... Saturday=6
@@ -1693,11 +1697,9 @@ async def whatsapp_webhook(message: WebhookMessage):
         day_name = days[our_day_index]
         
         # Get current time for more context
-        from datetime import datetime as dt_class
-        current_time = dt_class.now().strftime("%H:%M")
+        current_time = local_time_now.strftime("%H:%M")
         
         # Calculate next 7 days with their day names - MORE EXPLICIT
-        from datetime import timedelta
         next_days_info = []
         for i in range(7):
             d = today + timedelta(days=i)
@@ -1916,12 +1918,62 @@ Responde como secretaria médica profesional:"""
         if appointment_match:
             apt_text = appointment_match.group(1)
             fecha_match = re.search(r'Fecha:\s*(\d{4}-\d{2}-\d{2})', apt_text)
-            hora_match = re.search(r'Hora:\s*(\d{1,2}:\d{2})', apt_text)
+            hora_match = re.search(r'Hora:\s*(\d{1,2}:\d{2})(?:\s*(am|pm|a\.m\.|p\.m\.))?', apt_text, re.IGNORECASE)
             motivo_match = re.search(r'Motivo:\s*(.+?)(?:\n|$)', apt_text)
             
             if fecha_match and hora_match:
                 new_date = fecha_match.group(1)
-                new_time = hora_match.group(1)
+                # Parse hour and normalize PM
+                time_str = hora_match.group(1)
+                ampm = hora_match.group(2)
+                hour, minute = map(int, time_str.split(':'))
+                if ampm:
+                    ampm_clean = ampm.lower().replace('.', '')
+                    if ampm_clean == 'pm' and hour < 12:
+                        hour += 12
+                    elif ampm_clean == 'am' and hour == 12:
+                        hour = 0
+                else:
+                    # Smart AM/PM inference based on clinic hours
+                    # If patient says "a las 3", AI might generate "03:00" (AM). 
+                    # If clinic is open 09:00-18:00, 3 AM is invalid, so assume they meant 3 PM (15:00)
+                    if hour > 0 and hour <= 11:
+                        # Determine day of week for new_date
+                        try:
+                            from datetime import datetime as dt_class
+                            apt_date_obj = dt_class.strptime(new_date, "%Y-%m-%d").date()
+                            # Python wd: 0=Mon, 6=Sun -> Our wd: 0=Sun, 1=Mon...
+                            wd_idx = (apt_date_obj.weekday() + 1) % 7
+                            
+                            # Get slots for that day
+                            day_slots = [s for s in availability_info if s.get('day_of_week') == wd_idx]
+                            
+                            # Check if the AM time is valid in any slot
+                            am_time_fmt = f"{hour:02d}:{minute:02d}:00"
+                            am_is_valid = False
+                            for s in day_slots:
+                                if s['start_time'] <= am_time_fmt <= s['end_time']:
+                                    am_is_valid = True
+                                    break
+                            
+                            if not am_is_valid:
+                                # Check if PM time (hour+12) WOULD be valid
+                                pm_hour = hour + 12
+                                pm_time_fmt = f"{pm_hour:02d}:{minute:02d}:00"
+                                pm_is_valid = False
+                                for s in day_slots:
+                                    if s['start_time'] <= pm_time_fmt <= s['end_time']:
+                                        pm_is_valid = True
+                                        break
+                                
+                                # If PM is valid but AM is not, autocorrect to PM!
+                                if pm_is_valid:
+                                    hour += 12
+                                    logger.info(f"Auto-corrected 0{hour-12}:00 to {hour}:00 based on clinic schedule")
+                        except Exception as e:
+                            logger.error(f"Error autocorrecting AM/PM: {e}")
+                            
+                new_time = f"{hour:02d}:{minute:02d}"
                 new_reason = motivo_match.group(1).strip() if motivo_match else "Consulta general"
                 
                 # CHECK FOR DUPLICATES: Verify no existing appointment at same date/time
