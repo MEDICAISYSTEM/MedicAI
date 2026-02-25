@@ -1456,6 +1456,29 @@ async def whatsapp_webhook(message: WebhookMessage):
                 content = re.sub(r'\(#[A-Za-z0-9]{3,10}\)', '', content).strip()
                 content = re.sub(r'#[A-Za-z0-9]{3,10}\b', '', content).strip()
                 content = re.sub(r'Ref:\s*[A-Za-z0-9]{3,10}\b', '', content, flags=re.IGNORECASE).strip()
+                
+        # If no code matched, try matching by Doctor's Name (ilike search)
+        if not clinic_id and content:
+            # Only do this if content is reasonably long (e.g. > 3 chars) to avoid false positives on "hola"
+            # It's better to verify if the message actually CONTAINS a doctor's name.
+            # Fetch all active clinics to do a simple python-side inclusion search which is more robust
+            # for partial matches like "Hola busco a la doctora Martinez"
+            clinics_query = supabase.table("clinics").select("id, name, is_active").eq("is_active", True).execute()
+            if clinics_query.data:
+                for c in clinics_query.data:
+                    doc_name = c["name"].lower()
+                    doc_name_clean = doc_name.replace("dr.", "").replace("dra.", "").replace("doctor", "").replace("doctora", "").strip()
+                    
+                    # If they typed the exact name, or a significant part of the name
+                    if doc_name_clean and doc_name_clean in content.lower():
+                        # Fetch full clinic data
+                        clinic_result = supabase.table("clinics").select("*").eq("id", c["id"]).execute()
+                        if clinic_result.data:
+                            clinic = clinic_result.data[0]
+                            clinic_id = clinic["id"]
+                            is_first_contact = True
+                            logger.info(f"Clinic {clinic_id} assigned by matching doctor name: {doc_name_clean}")
+                            break
         
         # STEP 1: Check if patient exists (ALWAYS do this first)
         patient_result = supabase.table("patients").select("*").eq("phone", phone).execute()
@@ -1496,10 +1519,10 @@ async def whatsapp_webhook(message: WebhookMessage):
         else:
             # New patient - need clinic_id from the message code
             if not clinic_id:
-                # No clinic identified - ask to use a valid link
+                # No clinic identified - ask to use a valid link securely
                 return {
                     "success": True,
-                    "response": "¡Hola! Para atenderte necesito que uses el link de WhatsApp de tu doctor. Solicítalo en tu próxima cita.",
+                    "response": "¡Hola! Somos el asistente automatizado de MedicAI. 🏥\n\nPara poder agendar tu cita, por favor asegúrate de hacer clic en el enlace de WhatsApp personalizado que te proporcionó tu doctor, o responde a este mensaje con el código único de tu clínica.",
                     "intent": "no_clinic",
                     "phone": phone
                 }
@@ -1518,12 +1541,15 @@ async def whatsapp_webhook(message: WebhookMessage):
             patient = new_patient
             logger.info(f"New patient {phone} created for clinic {clinic_id}")
         
-        # If still no clinic after all checks, return error
+        # If still no clinic after all checks, return error or general
         if not clinic_id or not clinic:
+            # Privacy compliant SaaS: Do not list all doctors.
+            reception_msg = "¡Hola! Identificamos que tu doctor anterior ya no se encuentra disponible.🏥\n\nPara poder continuar, por favor responde a este mensaje con el código único de tu nuevo especialista, o utiliza su enlace personalizado."
+            
             return {
-                "success": False,
-                "response": "No pudimos identificar tu clínica. Por favor usa el link de WhatsApp que te proporcionó tu doctor.",
-                "intent": "error",
+                "success": True,
+                "response": reception_msg,
+                "intent": "no_clinic",
                 "phone": phone
             }
         
@@ -1576,10 +1602,17 @@ async def whatsapp_webhook(message: WebhookMessage):
         # Get or create conversation
         conv_result = supabase.table("conversations").select("*").eq("patient_id", patient_id).eq("status", "active").execute()
         
+        conv_id = None
         if conv_result.data:
             conversation = conv_result.data[0]
-            conv_id = conversation["id"]
-        else:
+            if conversation.get("clinic_id") == clinic_id:
+                conv_id = conversation["id"]
+            else:
+                # Patient switched clinics! Isolate conversations by closing the old one
+                logger.info(f"Closing old conversation for {phone} switching to clinic {clinic_id}")
+                supabase.table("conversations").update({"status": "closed"}).eq("id", conversation["id"]).execute()
+        
+        if not conv_id:
             conv_id = str(uuid.uuid4())
             new_conv = {
                 "id": conv_id,
@@ -1591,10 +1624,7 @@ async def whatsapp_webhook(message: WebhookMessage):
             }
             supabase.table("conversations").insert(new_conv).execute()
         
-        # Get conversation history BEFORE saving current message
-        history_result = supabase.table("messages").select("*").eq("conversation_id", conv_id).order("timestamp").limit(20).execute()
-        
-        # Save patient message
+        # Save patient message FIRST
         patient_msg_id = str(uuid.uuid4())
         patient_message = {
             "id": patient_msg_id,
@@ -1605,6 +1635,30 @@ async def whatsapp_webhook(message: WebhookMessage):
             "intent": None
         }
         supabase.table("messages").insert(patient_message).execute()
+        
+        # ═══════════════════════════════════════════════════════════════
+        # MULTI-MESSAGE DEBOUNCE LOGIC
+        # Wait a few seconds to let any immediate subsequent messages arrive
+        # ═══════════════════════════════════════════════════════════════
+        import asyncio
+        await asyncio.sleep(4)
+        
+        # Check if a newer message from the patient arrived for this conversation
+        latest_msg_query = supabase.table("messages").select("id").eq("conversation_id", conv_id).eq("sender", "patient").order("timestamp", desc=True).limit(1).execute()
+        
+        if latest_msg_query.data and latest_msg_query.data[0]["id"] != patient_msg_id:
+            logger.info(f"Debounced: Newer message detected for {phone}. Skipping AI generation for this chunk.")
+            return {
+                "success": True,
+                "response": "Message batched. Awaiting final user message.",
+                "intent": "debounced",
+                "clinic_id": clinic_id,
+                "patient_id": patient_id,
+                "phone": phone
+            }
+            
+        # Get FULL conversation history INCLUDING all the newest debounced messages
+        history_result = supabase.table("messages").select("*").eq("conversation_id", conv_id).order("timestamp").limit(20).execute()
         
         # Get availability for context - filtered by clinic
         availability_result = supabase.table("availability").select("*").eq("clinic_id", clinic_id).eq("is_available", True).order("day_of_week").execute()
