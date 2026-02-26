@@ -1427,12 +1427,14 @@ async def whatsapp_webhook(message: WebhookMessage):
             timestamp = datetime.now(timezone.utc).isoformat()
         
         logger.info(f"Webhook received: phone={phone}, message_preview={content[:50] if content else 'empty'}...")
-        is_first_contact = False  # Flag to track if this is first message with code
         
-        # Check if message contains a clinic code (format: #CODIGO or Ref:CODIGO or (CODIGO))
+        # Determine the target clinic
         clinic_id = None
         clinic = None
+        is_first_contact = False # Flag to track if this is first message with code/name
+        explicit_clinic_matched = False # Flag to track if clinic was explicitly matched in this message
         
+        # 1. Try to extract clinic code from message
         # Try multiple formats to find clinic code
         # Format 1: #CODE (current format)
         # Format 2: Ref:CODE (legacy format)
@@ -1452,6 +1454,7 @@ async def whatsapp_webhook(message: WebhookMessage):
                 clinic = clinic_result.data[0]
                 clinic_id = clinic["id"]
                 is_first_contact = True
+                explicit_clinic_matched = True
                 # Remove the code from message for natural conversation (all formats)
                 content = re.sub(r'\(#[A-Za-z0-9]{3,10}\)', '', content).strip()
                 content = re.sub(r'#[A-Za-z0-9]{3,10}\b', '', content).strip()
@@ -1477,6 +1480,7 @@ async def whatsapp_webhook(message: WebhookMessage):
                             clinic = clinic_result.data[0]
                             clinic_id = clinic["id"]
                             is_first_contact = True
+                            explicit_clinic_matched = True
                             logger.info(f"Clinic {clinic_id} assigned by matching doctor name: {doc_name_clean}")
                             break
         
@@ -1603,14 +1607,26 @@ async def whatsapp_webhook(message: WebhookMessage):
         conv_result = supabase.table("conversations").select("*").eq("patient_id", patient_id).eq("status", "active").execute()
         
         conv_id = None
+        has_active_conversation = False
+        
         if conv_result.data:
             conversation = conv_result.data[0]
-            if conversation.get("clinic_id") == clinic_id:
-                conv_id = conversation["id"]
-            else:
-                # Patient switched clinics! Isolate conversations by closing the old one
-                logger.info(f"Closing old conversation for {phone} switching to clinic {clinic_id}")
+            
+            # Check for stale conversation (> 12 hours old)
+            from datetime import datetime as dt_class, timezone as tz_class
+            try:
+                last_msg_time = dt_class.fromisoformat(conversation["last_message_at"].replace('Z', '+00:00'))
+                is_stale = (dt_class.now(tz_class.utc) - last_msg_time).total_seconds() > (12 * 3600)
+            except Exception:
+                is_stale = False
+                
+            if is_stale or conversation.get("clinic_id") != clinic_id:
+                # Close stale or mismatched conversation
+                logger.info(f"Closing conversation for {phone} (stale={is_stale}, switched_clinic={conversation.get('clinic_id') != clinic_id})")
                 supabase.table("conversations").update({"status": "closed"}).eq("id", conversation["id"]).execute()
+            else:
+                conv_id = conversation["id"]
+                has_active_conversation = True
         
         if not conv_id:
             conv_id = str(uuid.uuid4())
@@ -1623,6 +1639,48 @@ async def whatsapp_webhook(message: WebhookMessage):
                 "status": "active"
             }
             supabase.table("conversations").insert(new_conv).execute()
+        
+        # ═══════════════════════════════════════════════════════════════
+        # INTERCEPT RETURNING PATIENTS WITHOUT EXPLICIT DOCTOR
+        # ═══════════════════════════════════════════════════════════════
+        if patient_result.data and not has_active_conversation and not explicit_clinic_matched and not is_first_contact:
+            # Protect multi-tenant SaaS privacy/routing by forcing the user to confirm their doctor
+            # instead of blindly talking to their previous physician.
+            doctor_name = clinic.get('name', 'el doctor')
+            routing_prompt = f"¡Hola de nuevo! 👋\n\nVeo que tu última consulta fue con {doctor_name}. ¿Deseas agendar con este mismo especialista, o buscas a otro doctor?\n\n_(Si buscas a otro, por favor escríbeme su nombre o envíame su enlace)_"
+            
+            # Save patient message
+            patient_msg_id = str(uuid.uuid4())
+            patient_message = {
+                "id": patient_msg_id,
+                "conversation_id": conv_id,
+                "sender": "patient",
+                "content": content,
+                "timestamp": timestamp,
+                "intent": None
+            }
+            supabase.table("messages").insert(patient_message).execute()
+            
+            # Save AI routing prompt
+            routing_msg_id = str(uuid.uuid4())
+            routing_message = {
+                "id": routing_msg_id,
+                "conversation_id": conv_id,
+                "sender": "ai",
+                "content": routing_prompt,
+                "timestamp": timestamp,
+                "intent": "routing_prompt"
+            }
+            supabase.table("messages").insert(routing_message).execute()
+            
+            return {
+                "success": True,
+                "response": routing_prompt,
+                "intent": "routing_prompt",
+                "clinic_id": clinic_id,
+                "patient_id": patient_id,
+                "phone": phone
+            }
         
         # Save patient message FIRST
         patient_msg_id = str(uuid.uuid4())
