@@ -1469,11 +1469,20 @@ async def whatsapp_webhook(message: WebhookMessage):
             clinics_query = supabase.table("clinics").select("id, name, is_active").eq("is_active", True).execute()
             if clinics_query.data:
                 for c in clinics_query.data:
+                    content_lower = content.lower()
                     doc_name = c["name"].lower()
                     doc_name_clean = doc_name.replace("dr.", "").replace("dra.", "").replace("doctor", "").replace("doctora", "").strip()
                     
-                    # If they typed the exact name, or a significant part of the name
-                    if doc_name_clean and doc_name_clean in content.lower():
+                    # If they typed a significant part of the name (e.g. last name like "Arriaga")
+                    name_parts = [p.strip() for p in doc_name_clean.split() if len(p.strip()) > 3]
+                    
+                    match_found = False
+                    for part in name_parts:
+                        if part in content_lower:
+                            match_found = True
+                            break
+                            
+                    if match_found:
                         # Fetch full clinic data
                         clinic_result = supabase.table("clinics").select("*").eq("id", c["id"]).execute()
                         if clinic_result.data:
@@ -1481,7 +1490,7 @@ async def whatsapp_webhook(message: WebhookMessage):
                             clinic_id = clinic["id"]
                             is_first_contact = True
                             explicit_clinic_matched = True
-                            logger.info(f"Clinic {clinic_id} assigned by matching doctor name: {doc_name_clean}")
+                            logger.info(f"Clinic {clinic_id} assigned by matching doctor name part: {doc_name_clean}")
                             break
         
         # STEP 1: Check if patient exists (ALWAYS do this first)
