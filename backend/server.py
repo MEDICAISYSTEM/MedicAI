@@ -1651,45 +1651,37 @@ async def whatsapp_webhook(message: WebhookMessage):
         
         # ═══════════════════════════════════════════════════════════════
         # INTERCEPT RETURNING PATIENTS WITHOUT EXPLICIT DOCTOR
+        # Only fire ONCE per new conversation (check if routing prompt was already sent)
         # ═══════════════════════════════════════════════════════════════
         if patient_result.data and not has_active_conversation and not explicit_clinic_matched and not is_first_contact:
-            # Protect multi-tenant SaaS privacy/routing by forcing the user to confirm their doctor
-            # instead of blindly talking to their previous physician.
-            doctor_name = clinic.get('name', 'el doctor')
-            routing_prompt = f"¡Hola de nuevo! 👋\n\nVeo que tu última consulta fue con {doctor_name}. ¿Deseas agendar con este mismo especialista, o buscas a otro doctor?\n\n_(Si buscas a otro, por favor escríbeme su nombre o envíame su enlace)_"
+            # Check if we already sent a routing prompt in this conversation
+            existing_msgs = supabase.table("messages").select("intent").eq("conversation_id", conv_id).eq("intent", "routing_prompt").limit(1).execute()
             
-            # Save patient message
-            patient_msg_id = str(uuid.uuid4())
-            patient_message = {
-                "id": patient_msg_id,
-                "conversation_id": conv_id,
-                "sender": "patient",
-                "content": content,
-                "timestamp": timestamp,
-                "intent": None
-            }
-            supabase.table("messages").insert(patient_message).execute()
-            
-            # Save AI routing prompt
-            routing_msg_id = str(uuid.uuid4())
-            routing_message = {
-                "id": routing_msg_id,
-                "conversation_id": conv_id,
-                "sender": "ai",
-                "content": routing_prompt,
-                "timestamp": timestamp,
-                "intent": "routing_prompt"
-            }
-            supabase.table("messages").insert(routing_message).execute()
-            
-            return {
-                "success": True,
-                "response": routing_prompt,
-                "intent": "routing_prompt",
-                "clinic_id": clinic_id,
-                "patient_id": patient_id,
-                "phone": phone
-            }
+            if not existing_msgs.data:
+                doctor_name = clinic.get('name', 'el doctor')
+                routing_prompt = f"¡Hola de nuevo! 👋\n\nVeo que tu última consulta fue con {doctor_name}. ¿Deseas agendar con este mismo especialista, o buscas a otro doctor?\n\n_(Si buscas a otro, por favor escríbeme su nombre o envíame su enlace)_"
+                
+                # Save patient message
+                patient_msg_id = str(uuid.uuid4())
+                supabase.table("messages").insert({
+                    "id": patient_msg_id, "conversation_id": conv_id,
+                    "sender": "patient", "content": content,
+                    "timestamp": timestamp, "intent": None
+                }).execute()
+                
+                # Save AI routing prompt
+                supabase.table("messages").insert({
+                    "id": str(uuid.uuid4()), "conversation_id": conv_id,
+                    "sender": "ai", "content": routing_prompt,
+                    "timestamp": timestamp, "intent": "routing_prompt"
+                }).execute()
+                
+                return {
+                    "success": True, "response": routing_prompt,
+                    "intent": "routing_prompt", "clinic_id": clinic_id,
+                    "patient_id": patient_id, "phone": phone
+                }
+            # If routing prompt was already sent, fall through to normal AI processing
         
         # Save patient message FIRST
         patient_msg_id = str(uuid.uuid4())
@@ -1725,7 +1717,7 @@ async def whatsapp_webhook(message: WebhookMessage):
             }
             
         # Get FULL conversation history INCLUDING all the newest debounced messages
-        history_result = supabase.table("messages").select("*").eq("conversation_id", conv_id).order("timestamp").limit(20).execute()
+        history_result = supabase.table("messages").select("*").eq("conversation_id", conv_id).order("timestamp").limit(30).execute()
         
         # Get availability for context - filtered by clinic
         availability_result = supabase.table("availability").select("*").eq("clinic_id", clinic_id).eq("is_available", True).order("day_of_week").execute()
@@ -1737,17 +1729,15 @@ async def whatsapp_webhook(message: WebhookMessage):
             availability_info = availability_result.data if availability_result.data else []
         
         days = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"]
-        availability_text = "\n".join([
-            f"- {days[slot['day_of_week']]}: {slot['start_time']} - {slot['end_time']}"
-            for slot in availability_info
-        ]) if availability_info else "Horarios no disponibles actualmente."
         
-        # Build conversation history for AI context - format more clearly
+        # Build conversation history with turn numbers for better AI context
         conversation_history = ""
         if history_result.data:
-            for msg in history_result.data[-10:]:  # Last 10 messages max for clarity
+            turn = 1
+            for msg in history_result.data[-15:]:  # Last 15 messages for context
                 role = "PACIENTE" if msg["sender"] == "patient" else "ASISTENTE"
-                conversation_history += f"{role}: {msg['content']}\n\n"
+                conversation_history += f"[{turn}] {role}: {msg['content']}\n"
+                turn += 1
         
         # Get today's date for appointment context - FORCE LOCAL TIMEZONE (UTC-6)
         from datetime import datetime as dt_class, timedelta
@@ -1781,15 +1771,16 @@ async def whatsapp_webhook(message: WebhookMessage):
             })
         
         # Build REAL available slots for next 7 days - WITH EXPLICIT LABELS
-        available_slots_text = "CALENDARIO DE DISPONIBILIDAD (próximos 7 días):\n"
-        available_slots_text += f"⚡ REFERENCIA: Hoy es {day_name.upper()} {today_str}\n\n"
+        available_slots_text = "CALENDARIO (próximos 7 días):\n"
+        available_slots_text += f"Hoy es {day_name.upper()} {today_str}, hora actual: {current_time}\n\n"
         for day_info in next_days_info:
             day_availability = [slot for slot in availability_info if slot.get('day_of_week') == day_info['day_num']]
             if day_availability:
-                slots_str = ", ".join([f"{s['start_time']}-{s['end_time']}" for s in day_availability])
-                available_slots_text += f"📅 {day_info['date']} = {day_info['day_label']} ({day_info['day_name']}): {slots_str}\n"
+                # Strip seconds from times (09:00:00 -> 09:00)
+                slots_str = ", ".join([f"{s['start_time'][:5]}-{s['end_time'][:5]}" for s in day_availability])
+                available_slots_text += f"{day_info['date']} {day_info['day_label']} ({day_info['day_name']}): {slots_str}\n"
             else:
-                available_slots_text += f"❌ {day_info['date']} = {day_info['day_label']} ({day_info['day_name']}): SIN DISPONIBILIDAD\n"
+                available_slots_text += f"{day_info['date']} {day_info['day_label']} ({day_info['day_name']}): CERRADO\n"
         
         if not availability_info:
             available_slots_text = "HORARIOS: No hay horarios configurados. Solicitar al paciente que llame al consultorio.\n"
@@ -1815,121 +1806,87 @@ async def whatsapp_webhook(message: WebhookMessage):
                 existing_apts_info += f"- ID: {apt['id'][:8]} | Fecha: {apt['date']} | Hora: {apt['time']} | Motivo: {apt.get('reason', 'N/A')} | Estado: {apt['status'].upper()}\n"
             existing_apts_info += "\nSI EL PACIENTE QUIERE AGENDAR: Primero informar que YA tiene cita y preguntar si desea mantener, cancelar o reagendar."
         
-        # STRICT SECRETARY PROMPT
-        system_prompt = f"""Eres una SECRETARIA MÉDICA profesional y estricta del consultorio del {doctor_name}.
-Tu única función es gestionar la agenda de citas de manera precisa y consistente.
+        # ═══════════════════════════════════════════════════════════════
+        # SYSTEM INSTRUCTION (rules - sent separately from conversation)
+        # ═══════════════════════════════════════════════════════════════
+        system_instruction = f"""Eres la secretaria médica virtual del consultorio del {doctor_name}. Tu ÚNICA función es gestionar citas.
 
-═══════════════════════════════════════════════════════════════
-INFORMACIÓN DEL SISTEMA (¡DATOS REALES, NO INVENTES!)
-═══════════════════════════════════════════════════════════════
-Doctor: {doctor_name}
-Especialidad: {specialty or 'Medicina General'}
-Precio consulta: {price_info}
+DATOS FIJOS:
+- Doctor: {doctor_name}
+- Especialidad: {specialty or 'Medicina General'}
+- Precio: {price_info}
 
-⏰ FECHA Y HORA ACTUAL (REAL DEL SERVIDOR):
-   - Fecha: {today_str}
-   - Día: {day_name.upper()}
-   - Hora: {current_time}
-   ⚠️ IMPORTANTE: Hoy es {day_name.upper()}. Si el paciente dice "mañana", 
-   eso significa {next_days_info[1]['date']} ({next_days_info[1]['day_name']}).
-   NO confundas los días. Usa SOLO las fechas del calendario abajo.
+Paciente actual:
+- Nombre: {patient.get('name') or '[NO REGISTRADO - pedir nombre ANTES de agendar]'}
+- Teléfono: {phone}
+{existing_apts_info}
 
 {available_slots_text}
 
-═══════════════════════════════════════════════════════════════
-DATOS DEL PACIENTE
-═══════════════════════════════════════════════════════════════
-Nombre: {patient.get('name') or '[SIN REGISTRAR - SOLICITAR ANTES DE CUALQUIER ACCIÓN]'}
-Teléfono: {phone}{existing_apts_info}
+REGLAS CRÍTICAS:
+1. SOLO ofrece horarios que aparecen en el CALENDARIO arriba. NUNCA inventes.
+2. Usa formato 24h para las horas (3 PM = 15:00). En el tag [CITA_CONFIRMADA] SIEMPRE usa HH:MM en 24h.
+3. Si el paciente dice "a las 3" sin AM/PM y el horario del doctor es diurno, asume PM (15:00).
+4. Si el paciente dice "mañana", eso es {next_days_info[1]['date']} ({next_days_info[1]['day_name']}). NO confundas días.
+5. NUNCA confirmes una cita sin que el paciente diga explícitamente "sí", "confirmo", "dale" o equivalente.
+6. Si el paciente YA tiene cita activa, infórmale primero y pregunta si quiere mantener, cancelar o reagendar.
+7. NUNCA repitas preguntas que ya fueron respondidas en el historial de conversación.
+8. Si el paciente quiere atenderse con OTRO doctor, responde: "Entendido. Por favor escríbeme el nombre del doctor o envíame su enlace de WhatsApp."
 
-═══════════════════════════════════════════════════════════════
-REGLAS ABSOLUTAS (NO NEGOCIABLES)
-═══════════════════════════════════════════════════════════════
-1. NUNCA confirmes una cita sin que el paciente diga explícitamente "sí", "confirmo" o equivalente
-2. NUNCA inventes horarios - solo ofrece los que aparecen arriba como DISPONIBLES
-3. NUNCA crees una cita si el paciente ya tiene una activa - primero pregunta qué desea hacer
-4. NUNCA asumas intenciones - siempre pregunta y confirma
-5. Si hay CUALQUIER duda o inconsistencia, pide tiempo para verificar
-
-═══════════════════════════════════════════════════════════════
-FLUJOS OBLIGATORIOS
-═══════════════════════════════════════════════════════════════
-
-📋 AGENDAR CITA (paciente sin cita existente):
-1. Verificar que tienes el nombre del paciente
-2. Preguntar fecha, hora preferida y motivo
-3. Ofrecer SOLO horarios disponibles reales
-4. Confirmar datos: "Tengo disponible [fecha] a las [hora]. ¿Desea confirmar?"
-5. SOLO si el paciente confirma, responde con el formato de confirmación
-
-📋 PACIENTE CON CITA EXISTENTE:
-Mensaje obligatorio: "Tiene una cita programada para [fecha] a las [hora]. ¿Desea mantenerla, cancelarla o reagendarla?"
-NO agendes nada nuevo hasta que el paciente elija.
-
-📋 CANCELAR CITA:
-Si el paciente quiere cancelar, responde:
-[CITA_CANCELADA]
-ID: (los primeros 8 caracteres del ID de la cita)
-[/CITA_CANCELADA]
-Su cita para [fecha] a las [hora] ha sido cancelada correctamente.
-
-📋 REAGENDAR CITA:
-1. Primero cancela la cita existente con [CITA_CANCELADA]
-2. Luego ofrece nuevos horarios disponibles
-3. Si confirma el nuevo horario, usa [CITA_CONFIRMADA]
-
-═══════════════════════════════════════════════════════════════
-FORMATOS DE RESPUESTA DEL SISTEMA
-═══════════════════════════════════════════════════════════════
-
-Para CONFIRMAR nueva cita:
+FLUJO PARA AGENDAR:
+1. Pedir nombre (si no lo tienes) → [NOMBRE: nombre_completo]
+2. Preguntar fecha, hora y motivo
+3. Proponer: "Tengo disponible el [fecha] a las [HH:MM]. ¿Confirma?"
+4. SOLO cuando el paciente confirme, emitir:
 [CITA_CONFIRMADA]
 Fecha: YYYY-MM-DD
 Hora: HH:MM
-Motivo: (motivo de consulta)
-Nombre: (nombre completo)
+Motivo: motivo
+Nombre: nombre
 [/CITA_CONFIRMADA]
-Su cita ha quedado confirmada para el [fecha] a las [hora] con el {doctor_name}.
 
-Para CANCELAR cita:
+PARA CANCELAR:
 [CITA_CANCELADA]
-ID: (primeros 8 caracteres del ID)
+ID: primeros_8_caracteres_del_id
 [/CITA_CANCELADA]
-Su cita ha sido cancelada correctamente.
 
-Para REGISTRAR nombre del paciente:
-[NOMBRE: nombre_completo]
+ESTILO: Profesional, cortés, directo. Máximo 2-3 oraciones por respuesta. Sin emojis excesivos."""
 
-═══════════════════════════════════════════════════════════════
-TONO Y ESTILO
-═══════════════════════════════════════════════════════════════
-- Profesional y cortés, pero directo
-- Sin emojis excesivos
-- Sin suposiciones
-- Sin frases ambiguas
-- Confirma todo antes de actuar
+        # ═══════════════════════════════════════════════════════════════
+        # CONVERSATION CONTENTS (sent as user/model turns to Gemini)
+        # ═══════════════════════════════════════════════════════════════
+        gemini_contents = []
+        if history_result.data:
+            for msg in history_result.data[-15:]:
+                role = "user" if msg["sender"] == "patient" else "model"
+                gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+        
+        # If conversation is empty or last message isn't the current one, add it
+        if not gemini_contents or gemini_contents[-1]["parts"][0]["text"] != content:
+            gemini_contents.append({"role": "user", "parts": [{"text": content}]})
+        
+        # Ensure conversation starts with user message (Gemini requirement)
+        if gemini_contents and gemini_contents[0]["role"] != "user":
+            gemini_contents = gemini_contents[1:]
 
-HISTORIAL DE LA CONVERSACIÓN:
-{conversation_history}
-
-MENSAJE ACTUAL DEL PACIENTE: {content}
-
-Responde como secretaria médica profesional:"""
-
-        # Process with Google Gemini (gemini-1.5-flash for speed and cost-effectiveness)
+        # Process with Google Gemini - using proper system_instruction separation
         gemini_key = os.environ.get('GEMINI_API_KEY')
         
         try:
             from google import genai
+            from google.genai import types
             client = genai.Client(api_key=gemini_key)
             
-            # Using asyncio.to_thread to run the synchronous SDK call without blocking the event loop
             import asyncio
             
             def call_gemini():
                 return client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=system_prompt,
+                    contents=gemini_contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.3,
+                    ),
                 )
                 
             response = await asyncio.to_thread(call_gemini)
@@ -2084,107 +2041,9 @@ Responde como secretaria médica profesional:"""
             # Clean the response to remove the markup
             ai_response = re.sub(r'\[CITA_CONFIRMADA\].*?\[/CITA_CONFIRMADA\]\s*', '', ai_response, flags=re.DOTALL)
         
-        # ═══════════════════════════════════════════════════════════════
-        # SMART CONFIRMATION DETECTOR (Fallback when AI doesn't generate tag)
-        # ═══════════════════════════════════════════════════════════════
-        if not appointment_created and patient.get('name'):
-            content_lower = content.lower().strip()
-            # Detect confirmation words
-            confirmation_words = ["sí", "si", "confirmo", "confirmar", "ok", "dale", "perfecto", 
-                                  "está bien", "esta bien", "de acuerdo", "acepto", "va", "listo", 
-                                  "correcto", "afirmativo", "claro", "por favor", "adelante"]
-            is_confirmation = any(word in content_lower for word in confirmation_words) and len(content_lower) < 60
-            
-            if is_confirmation:
-                # Look for date/time in the LAST bot message from conversation history
-                # The bot usually proposes: "Tengo disponible 2026-01-30 a las 10:00"
-                last_bot_msg = ""
-                if history_result.data:
-                    for msg in reversed(history_result.data):
-                        if msg.get("sender") == "ai":
-                            last_bot_msg = msg.get("content", "")
-                            break
-                
-                # Also check current AI response for proposed times
-                search_text = last_bot_msg + " " + ai_response
-                
-                # Extract date - look for YYYY-MM-DD format
-                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', search_text)
-                
-                # Extract time - look for HH:MM format
-                time_match = re.search(r'(\d{1,2}):(\d{2})', search_text)
-                
-                # Also try to find "mañana", "hoy" patterns
-                target_date = None
-                target_time = None
-                
-                if date_match:
-                    target_date = date_match.group(1)
-                elif 'mañana' in search_text.lower():
-                    target_date = (today + timedelta(days=1)).strftime('%Y-%m-%d')
-                elif 'hoy' in search_text.lower():
-                    target_date = today.strftime('%Y-%m-%d')
-                
-                if time_match:
-                    hour = int(time_match.group(1))
-                    minute = time_match.group(2)
-                    # Handle PM times
-                    if ('pm' in search_text.lower() or 'p.m' in search_text.lower()) and hour < 12:
-                        hour += 12
-                    target_time = f"{hour:02d}:{minute}"
-                
-                # Try to extract reason from conversation
-                reason = "Consulta general"
-                reason_patterns = [
-                    r'(?:motivo|por|para)[:\s]+([^\.]+?)(?:\.|$)',
-                    r'(?:dolor|consulta|revisión|chequeo|cita)[:\s]*(?:de|por)?\s*([^\.]+?)(?:\.|$)'
-                ]
-                for pattern in reason_patterns:
-                    reason_match = re.search(pattern, search_text.lower())
-                    if reason_match:
-                        reason = reason_match.group(1).strip().capitalize()[:50]
-                        break
-                
-                if target_date and target_time:
-                    # Check for duplicates
-                    dup_check = supabase.table("appointments").select("id").eq("patient_id", patient_id).eq("clinic_id", clinic_id).eq("date", target_date).eq("time", target_time).eq("status", "confirmed").execute()
-                    
-                    if not dup_check.data:
-                        apt_id = str(uuid.uuid4())
-                        new_apt = {
-                            "id": apt_id,
-                            "patient_id": patient_id,
-                            "clinic_id": clinic_id,
-                            "date": target_date,
-                            "time": target_time,
-                            "reason": reason,
-                            "status": "confirmed",
-                            "priority": "normal",
-                            "created_at": datetime.now(timezone.utc).isoformat()
-                        }
-                        supabase.table("appointments").insert(new_apt).execute()
-                        appointment_created = True
-                        logger.info(f"Appointment created (smart detector): {apt_id} for {patient.get('name')} at {target_date} {target_time}")
-                        
-                        # Override AI response with confirmation
-                        ai_response = f"Perfecto. Su cita ha quedado confirmada para el {target_date} a las {target_time} con el {doctor_name}. Le esperamos."
-                        
-                        # WebSocket notification
-                        await manager.broadcast({
-                            "type": "new_appointment",
-                            "clinic_id": clinic_id,
-                            "data": {
-                                "id": apt_id,
-                                "patient_name": patient.get('name'),
-                                "patient_phone": phone,
-                                "date": target_date,
-                                "time": target_time,
-                                "reason": reason,
-                                "doctor_name": doctor_name
-                            }
-                        })
-                    else:
-                        logger.warning(f"Duplicate prevented (smart detector): {patient_id} at {target_date} {target_time}")
+        # NOTE: Smart Confirmation Detector was REMOVED.
+        # All appointment creation must go through the [CITA_CONFIRMADA] tag from the AI.
+        # This eliminates ghost appointments caused by false-positive confirmations.
         
         # Detect intent from AI response and original message
         intent = "general"
