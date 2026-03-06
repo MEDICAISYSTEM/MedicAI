@@ -1535,6 +1535,7 @@ async def whatsapp_webhook(message: WebhookMessage):
                 # No clinic identified - ask to use a valid link securely
                 return {
                     "success": True,
+                    "should_reply": True,
                     "response": "¡Hola! Somos el asistente automatizado de MedicAI. 🏥\n\nPara poder agendar tu cita, por favor asegúrate de hacer clic en el enlace de WhatsApp personalizado que te proporcionó tu doctor, o responde a este mensaje con el código único de tu clínica.",
                     "intent": "no_clinic",
                     "phone": phone
@@ -1561,6 +1562,7 @@ async def whatsapp_webhook(message: WebhookMessage):
             
             return {
                 "success": True,
+                "should_reply": True,
                 "response": reception_msg,
                 "intent": "no_clinic",
                 "phone": phone
@@ -1601,6 +1603,7 @@ async def whatsapp_webhook(message: WebhookMessage):
             
             return {
                 "success": True,
+                "should_reply": True,
                 "response": welcome,
                 "intent": "greeting",
                 "clinic_id": clinic_id,
@@ -1677,7 +1680,7 @@ async def whatsapp_webhook(message: WebhookMessage):
                 }).execute()
                 
                 return {
-                    "success": True, "response": routing_prompt,
+                    "success": True, "should_reply": True, "response": routing_prompt,
                     "intent": "routing_prompt", "clinic_id": clinic_id,
                     "patient_id": patient_id, "phone": phone
                 }
@@ -1709,7 +1712,8 @@ async def whatsapp_webhook(message: WebhookMessage):
             logger.info(f"Debounced: Newer message detected for {phone}. Skipping AI generation for this chunk.")
             return {
                 "success": True,
-                "response": "Message batched. Awaiting final user message.",
+                "should_reply": False,
+                "response": "",
                 "intent": "debounced",
                 "clinic_id": clinic_id,
                 "patient_id": patient_id,
@@ -2092,6 +2096,7 @@ ESTILO: Profesional, cortés, directo. Máximo 2-3 oraciones por respuesta. Sin 
         
         return {
             "success": True,
+            "should_reply": True,
             "response": ai_response,
             "intent": intent,
             "patient_id": patient_id,
