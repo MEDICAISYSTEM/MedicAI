@@ -113,6 +113,9 @@ class ClinicResponse(BaseModel):
     notes: Optional[str] = None
     created_at: str
     whatsapp_link: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    whatsapp_phone_id: Optional[str] = None
+    whatsapp_display_name: Optional[str] = None
 
 class ClinicCreate(BaseModel):
     code: str
@@ -126,6 +129,9 @@ class ClinicCreate(BaseModel):
     consultation_price: Optional[float] = None
     consultation_currency: Optional[str] = "MXN"
     notes: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    whatsapp_phone_id: Optional[str] = None
+    whatsapp_display_name: Optional[str] = None
 
 class ClinicUpdate(BaseModel):
     name: Optional[str] = None
@@ -141,6 +147,9 @@ class ClinicUpdate(BaseModel):
     subscription_status: Optional[str] = None
     subscription_end: Optional[str] = None
     notes: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    whatsapp_phone_id: Optional[str] = None
+    whatsapp_display_name: Optional[str] = None
 
 class SuperAdminStats(BaseModel):
     total_clinics: int
@@ -277,6 +286,7 @@ class WebhookMessage(BaseModel):
     phone: str
     message: str
     timestamp: Optional[str] = None
+    to: Optional[str] = None  # Destination number - identifies which clinic's WhatsApp received the message
 
 class DashboardStats(BaseModel):
     total_patients: int
@@ -435,21 +445,28 @@ async def get_current_user(admin: dict = Depends(get_current_admin)):
 
 # ============ SUPER ADMIN - CLINICS ENDPOINTS ============
 
-WHATSAPP_NUMBER = os.environ.get('WHATSAPP_NUMBER', '521XXXXXXXXXX')  # Tu número de WhatsApp Business
+WHATSAPP_NUMBER_LEGACY = os.environ.get('WHATSAPP_NUMBER', '521XXXXXXXXXX')  # Fallback for clinics without own number
 
-def generate_whatsapp_link(code, doctor_name=""):
-    """Generate a user-friendly WhatsApp link with natural message"""
-    # Mensaje natural que el paciente NO querrá borrar
-    # El código va al final entre paréntesis para que sea menos intrusivo
-    if doctor_name:
-        message = f"Hola, quiero agendar una cita con {doctor_name} (#{code})"
-    else:
-        message = f"Hola, quiero agendar una cita (#{code})"
-    
-    # Encode para URL
+def generate_whatsapp_link(clinic):
+    """Generate WhatsApp link using clinic's own number when available, fallback to shared number"""
     from urllib.parse import quote
-    encoded_message = quote(message)
-    return f"https://wa.me/{WHATSAPP_NUMBER}?text={encoded_message}"
+    
+    number = clinic.get('whatsapp_number')
+    doctor_name = clinic.get('name', '')
+    code = clinic.get('code', '')
+    
+    if number:
+        # Clinic has its own number - clean link without code
+        message = f"Hola, quiero agendar una cita con {doctor_name}" if doctor_name else "Hola, quiero agendar una cita"
+    else:
+        # Fallback: shared number with code for identification
+        number = WHATSAPP_NUMBER_LEGACY
+        if doctor_name:
+            message = f"Hola, quiero agendar una cita con {doctor_name} (#{code})"
+        else:
+            message = f"Hola, quiero agendar una cita (#{code})"
+    
+    return f"https://wa.me/{number}?text={quote(message)}"
 
 @api_router.get("/superadmin/stats", response_model=SuperAdminStats)
 async def get_superadmin_stats(admin: dict = Depends(require_super_admin)):
@@ -484,7 +501,7 @@ async def get_all_clinics(admin: dict = Depends(require_super_admin)):
         
         clinics = []
         for clinic in result.data:
-            clinic["whatsapp_link"] = generate_whatsapp_link(clinic['code'], clinic['name'])
+            clinic["whatsapp_link"] = generate_whatsapp_link(clinic)
             clinics.append(clinic)
         
         return clinics
@@ -501,7 +518,7 @@ async def get_clinic(clinic_id: str, admin: dict = Depends(require_super_admin))
             raise HTTPException(status_code=404, detail="Clinic not found")
         
         clinic = result.data[0]
-        clinic["whatsapp_link"] = generate_whatsapp_link(clinic['code'], clinic['name'])
+        clinic["whatsapp_link"] = generate_whatsapp_link(clinic)
         return clinic
     except HTTPException:
         raise
@@ -530,6 +547,9 @@ async def create_clinic(clinic_data: ClinicCreate, admin: dict = Depends(require
             "address": clinic_data.address,
             "welcome_message": clinic_data.welcome_message or f"¡Hola! Soy el asistente del {clinic_data.name}. ¿En qué puedo ayudarte?",
             "notes": clinic_data.notes,
+            "whatsapp_number": clinic_data.whatsapp_number,
+            "whatsapp_phone_id": clinic_data.whatsapp_phone_id,
+            "whatsapp_display_name": clinic_data.whatsapp_display_name,
             "is_active": True,
             "subscription_status": "active",
             "subscription_start": datetime.now(timezone.utc).date().isoformat(),
@@ -539,7 +559,7 @@ async def create_clinic(clinic_data: ClinicCreate, admin: dict = Depends(require
         
         supabase.table("clinics").insert(new_clinic).execute()
         
-        new_clinic["whatsapp_link"] = generate_whatsapp_link(new_clinic['code'], new_clinic['name'])
+        new_clinic["whatsapp_link"] = generate_whatsapp_link(new_clinic)
         return new_clinic
     except HTTPException:
         raise
@@ -561,7 +581,7 @@ async def update_clinic(clinic_id: str, update_data: ClinicUpdate, admin: dict =
             raise HTTPException(status_code=404, detail="Clinic not found")
         
         clinic = result.data[0]
-        clinic["whatsapp_link"] = generate_whatsapp_link(clinic['code'])
+        clinic["whatsapp_link"] = generate_whatsapp_link(clinic)
         return clinic
     except HTTPException:
         raise
@@ -1434,6 +1454,17 @@ async def whatsapp_webhook(message: WebhookMessage):
         is_first_contact = False # Flag to track if this is first message with code/name
         explicit_clinic_matched = False # Flag to track if clinic was explicitly matched in this message
         
+        # 0. PRIORITY: Resolve clinic by destination WhatsApp number (multi-number mode)
+        if message.to:
+            destination_number = message.to.replace('+', '').strip()
+            clinic_by_number = supabase.table("clinics").select("*").eq("whatsapp_number", destination_number).eq("is_active", True).execute()
+            if clinic_by_number.data:
+                clinic = clinic_by_number.data[0]
+                clinic_id = clinic["id"]
+                is_first_contact = True
+                explicit_clinic_matched = True
+                logger.info(f"Clinic {clinic_id} resolved by destination number: {destination_number}")
+        
         # 1. Try to extract clinic code from message
         # Try multiple formats to find clinic code
         # Format 1: #CODE (current format)
@@ -1447,7 +1478,7 @@ async def whatsapp_webhook(message: WebhookMessage):
             # Try parentheses format like (#CODE)
             clinic_code_match = re.search(r'\(#([A-Z0-9]{3,10})\)', content.upper())
         
-        if clinic_code_match:
+        if clinic_code_match and not clinic_id:
             potential_code = clinic_code_match.group(1)
             clinic_result = supabase.table("clinics").select("*").eq("code", potential_code).eq("is_active", True).execute()
             if clinic_result.data:
