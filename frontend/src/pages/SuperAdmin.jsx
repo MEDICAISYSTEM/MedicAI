@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "../components/ui/dialog";
 import { 
@@ -31,7 +32,9 @@ import {
   Activity,
   Search,
   CheckCircle,
-  XCircle
+  XCircle,
+  Wifi,
+  WifiOff
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -45,8 +48,10 @@ export default function SuperAdmin() {
   // Dialogs
   const [clinicDialogOpen, setClinicDialogOpen] = useState(false);
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingClinic, setEditingClinic] = useState(null);
   const [selectedClinic, setSelectedClinic] = useState(null);
+  const [deletingClinic, setDeletingClinic] = useState(null);
   const [clinicStats, setClinicStats] = useState(null);
   
   // Forms
@@ -161,6 +166,34 @@ export default function SuperAdmin() {
       fetchData();
     } catch (error) {
       toast.error("Error al actualizar estado");
+    }
+  };
+
+  const handleOpenDeleteDialog = (clinic) => {
+    setDeletingClinic(clinic);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteClinic = async () => {
+    if (!deletingClinic) return;
+    try {
+      await deleteClinic(deletingClinic.id);
+      toast.success(`${deletingClinic.name} eliminado correctamente`);
+      setDeleteDialogOpen(false);
+      setDeletingClinic(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Error al eliminar clínica");
+    }
+  };
+
+  const getWhatsAppStatus = (clinic) => {
+    if (clinic.whatsapp_phone_id && clinic.whatsapp_number) {
+      return { color: "emerald", label: "Meta API", icon: Wifi };
+    } else if (clinic.whatsapp_number) {
+      return { color: "amber", label: "Parcial", icon: WifiOff };
+    } else {
+      return { color: "slate", label: "Código", icon: WifiOff };
     }
   };
 
@@ -294,12 +327,21 @@ export default function SuperAdmin() {
                       <Building2 className="w-6 h-6 text-sky-600" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-semibold text-slate-900">{clinic.name}</h3>
                         <Badge className="bg-slate-100 text-slate-600 font-mono text-xs">{clinic.code}</Badge>
                         <Badge className={clinic.is_active ? 'badge-success' : 'badge-error'}>
                           {clinic.is_active ? 'Activa' : 'Inactiva'}
                         </Badge>
+                        {(() => {
+                          const waStatus = getWhatsAppStatus(clinic);
+                          return (
+                            <Badge className={`bg-${waStatus.color}-50 text-${waStatus.color}-700 text-xs flex items-center gap-1`}>
+                              <waStatus.icon className="w-3 h-3" />
+                              {waStatus.label}
+                            </Badge>
+                          );
+                        })()}
                       </div>
                       {clinic.clinic_name && (
                         <p className="text-sm text-slate-600">{clinic.clinic_name}</p>
@@ -353,6 +395,15 @@ export default function SuperAdmin() {
                         onClick={() => handleOpenClinicDialog(clinic)}
                       >
                         <Edit2 className="w-3 h-3" />
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 hover:border-red-200"
+                        onClick={() => handleOpenDeleteDialog(clinic)}
+                        data-testid={`delete-clinic-${clinic.id}`}
+                      >
+                        <Trash2 className="w-3 h-3" />
                       </Button>
                       <Switch 
                         checked={clinic.is_active}
@@ -665,6 +716,42 @@ export default function SuperAdmin() {
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5" />
+              Eliminar Clínica
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 pt-2">
+              ¿Estás seguro de que deseas eliminar a <strong>{deletingClinic?.name}</strong> ({deletingClinic?.code})?
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-3">
+            <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+              <p className="text-sm text-red-700">
+                ⚠️ Esta acción desactivará la clínica y el doctor perderá acceso al sistema. Los datos de pacientes y citas se conservarán.
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setDeleteDialogOpen(false); setDeletingClinic(null); }}>
+              Cancelar
+            </Button>
+            <Button 
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleDeleteClinic}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Sí, eliminar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
