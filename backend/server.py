@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi.responses import PlainTextResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ import jwt
 from passlib.context import CryptContext
 import json
 import asyncio
+import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -446,6 +448,8 @@ async def get_current_user(admin: dict = Depends(get_current_admin)):
 # ============ SUPER ADMIN - CLINICS ENDPOINTS ============
 
 WHATSAPP_NUMBER_LEGACY = os.environ.get('WHATSAPP_NUMBER', '521XXXXXXXXXX')  # Fallback for clinics without own number
+WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', 'medicai_2026')
+WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')  # System User permanent token
 
 def generate_whatsapp_link(clinic):
     """Generate WhatsApp link using clinic's own number when available, fallback to shared number"""
@@ -2138,6 +2142,224 @@ ESTILO: Profesional, cortés, directo. Máximo 2-3 oraciones por respuesta. Sin 
     except Exception as e:
         logger.error(f"Webhook processing error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process message: {str(e)}")
+
+# ============ DIRECT META WHATSAPP WEBHOOK (No Make.com) ============
+
+async def send_whatsapp_reply(phone_number_id: str, to: str, message_text: str):
+    """Send a WhatsApp reply directly via Meta Graph API"""
+    if not WHATSAPP_ACCESS_TOKEN:
+        logger.warning("WHATSAPP_ACCESS_TOKEN not set - cannot send reply")
+        return None
+    
+    url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": message_text}
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                logger.info(f"WhatsApp reply sent to {to} via phone_id {phone_number_id}")
+                return response.json()
+            else:
+                logger.error(f"WhatsApp send failed: {response.status_code} - {response.text}")
+                return None
+    except Exception as e:
+        logger.error(f"WhatsApp send error: {e}")
+        return None
+
+async def mark_message_as_read(phone_number_id: str, message_id: str):
+    """Mark a WhatsApp message as read (blue checkmarks) via Meta Graph API"""
+    if not WHATSAPP_ACCESS_TOKEN or not message_id:
+        return
+    
+    url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": message_id
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                logger.debug(f"Message {message_id} marked as read")
+            else:
+                logger.warning(f"Mark read failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        logger.warning(f"Mark read error (non-critical): {e}")
+
+@api_router.get("/webhook/meta")
+async def meta_webhook_verify(
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token"),
+    hub_challenge: str = Query(None, alias="hub.challenge")
+):
+    """Meta Webhook verification endpoint - responds to Meta's GET challenge"""
+    if hub_mode == "subscribe" and hub_verify_token == WHATSAPP_VERIFY_TOKEN:
+        logger.info("Meta webhook verified successfully")
+        return PlainTextResponse(content=hub_challenge)
+    
+    logger.warning(f"Meta webhook verification failed: mode={hub_mode}, token={hub_verify_token}")
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+@api_router.post("/webhook/meta")
+async def meta_webhook_receive(request: Request):
+    """
+    Receive raw webhooks from Meta Cloud API.
+    Parses the Meta format, extracts phone/message/destination number,
+    calls existing webhook logic, then sends reply directly via Graph API.
+    Supports multi-number: routes by whatsapp_phone_id first, then display_phone_number.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return {"status": "ok"}
+    
+    # Meta sends various event types - only process messages
+    if body.get("object") != "whatsapp_business_account":
+        return {"status": "ok"}
+    
+    for entry in body.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            
+            # Extract metadata (which number received the message)
+            metadata = value.get("metadata", {})
+            display_phone_number = metadata.get("display_phone_number", "")
+            phone_number_id = metadata.get("phone_number_id", "")
+            
+            # Resolve the destination number for clinic matching
+            # Priority 1: Match by phone_number_id (most reliable, set in clinic config)
+            # Priority 2: Fall back to display_phone_number from Meta
+            destination_number = display_phone_number.replace("+", "").strip()
+            if phone_number_id:
+                clinic_by_phone_id = supabase.table("clinics").select("whatsapp_number").eq("whatsapp_phone_id", phone_number_id).execute()
+                if clinic_by_phone_id.data and clinic_by_phone_id.data[0].get("whatsapp_number"):
+                    destination_number = clinic_by_phone_id.data[0]["whatsapp_number"]
+                    logger.info(f"Clinic resolved by phone_number_id={phone_number_id} -> {destination_number}")
+            
+            # Process each message
+            messages_list = value.get("messages", [])
+            if not messages_list:
+                continue
+            
+            for msg in messages_list:
+                # Only process text messages for now
+                if msg.get("type") != "text":
+                    continue
+                
+                from_phone = msg.get("from", "")
+                text_body = msg.get("text", {}).get("body", "")
+                timestamp = msg.get("timestamp", "")
+                message_id = msg.get("id", "")
+                
+                if not from_phone or not text_body:
+                    continue
+                
+                logger.info(f"Meta webhook: from={from_phone}, to={destination_number}, phone_id={phone_number_id}, msg={text_body[:50]}")
+                
+                # Mark message as read immediately (blue checkmarks for the patient)
+                if phone_number_id and message_id:
+                    asyncio.ensure_future(mark_message_as_read(phone_number_id, message_id))
+                
+                # Reuse existing webhook logic via internal call
+                try:
+                    webhook_message = WebhookMessage(
+                        phone=from_phone,
+                        message=text_body,
+                        timestamp=timestamp,
+                        to=destination_number
+                    )
+                    result = await whatsapp_webhook(webhook_message)
+                    
+                    # Send reply directly via Meta API
+                    if result.get("should_reply") and result.get("response"):
+                        # Determine which phone_number_id to use for sending
+                        # If we resolved the clinic by phone_number_id, prefer the clinic's whatsapp_phone_id
+                        send_phone_id = phone_number_id
+                        if result.get("clinic_id"):
+                            clinic_phone_id_query = supabase.table("clinics").select("whatsapp_phone_id").eq("id", result["clinic_id"]).execute()
+                            if clinic_phone_id_query.data and clinic_phone_id_query.data[0].get("whatsapp_phone_id"):
+                                send_phone_id = clinic_phone_id_query.data[0]["whatsapp_phone_id"]
+                        
+                        await send_whatsapp_reply(
+                            phone_number_id=send_phone_id,
+                            to=from_phone,
+                            message_text=result["response"]
+                        )
+                except Exception as e:
+                    logger.error(f"Error processing Meta webhook message: {e}")
+    
+    # Always return 200 to Meta to prevent retries
+    return {"status": "ok"}
+
+@api_router.get("/webhook/meta/status")
+async def meta_webhook_status(admin: dict = Depends(require_super_admin)):
+    """Check Meta webhook integration status - Super Admin only"""
+    try:
+        # Check env vars
+        has_access_token = bool(WHATSAPP_ACCESS_TOKEN)
+        has_verify_token = bool(WHATSAPP_VERIFY_TOKEN)
+        
+        # Get clinics with WhatsApp configured
+        clinics_result = supabase.table("clinics").select(
+            "id, code, name, whatsapp_number, whatsapp_phone_id, whatsapp_display_name, is_active"
+        ).eq("is_active", True).execute()
+        
+        configured_clinics = []
+        unconfigured_clinics = []
+        
+        for clinic in (clinics_result.data or []):
+            clinic_info = {
+                "id": clinic["id"],
+                "code": clinic["code"],
+                "name": clinic["name"],
+                "whatsapp_number": clinic.get("whatsapp_number"),
+                "whatsapp_phone_id": clinic.get("whatsapp_phone_id"),
+                "whatsapp_display_name": clinic.get("whatsapp_display_name"),
+            }
+            if clinic.get("whatsapp_phone_id") and clinic.get("whatsapp_number"):
+                clinic_info["status"] = "ready"
+                configured_clinics.append(clinic_info)
+            elif clinic.get("whatsapp_number"):
+                clinic_info["status"] = "partial"
+                clinic_info["missing"] = "whatsapp_phone_id"
+                unconfigured_clinics.append(clinic_info)
+            else:
+                clinic_info["status"] = "legacy"
+                clinic_info["missing"] = "whatsapp_number, whatsapp_phone_id"
+                unconfigured_clinics.append(clinic_info)
+        
+        return {
+            "integration": "meta_direct",
+            "environment": {
+                "WHATSAPP_ACCESS_TOKEN": "✅ configured" if has_access_token else "❌ missing",
+                "WHATSAPP_VERIFY_TOKEN": "✅ configured" if has_verify_token else "❌ missing",
+            },
+            "webhook_url": "/api/webhook/meta",
+            "webhook_methods": ["GET (verification)", "POST (messages)"],
+            "configured_clinics": len(configured_clinics),
+            "unconfigured_clinics": len(unconfigured_clinics),
+            "clinics": configured_clinics + unconfigured_clinics,
+            "ready": has_access_token and has_verify_token and len(configured_clinics) > 0
+        }
+    except Exception as e:
+        logger.error(f"Meta status check error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to check Meta status")
 
 # ============ HEALTH CHECK ============
 
