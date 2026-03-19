@@ -2361,6 +2361,36 @@ async def meta_webhook_status(admin: dict = Depends(require_super_admin)):
         logger.error(f"Meta status check error: {e}")
         raise HTTPException(status_code=500, detail="Failed to check Meta status")
 
+# ============ PRIVACY POLICY (required by Meta) ============
+
+@api_router.get("/privacy")
+async def privacy_policy():
+    """Simple privacy policy page required by Meta for app publishing"""
+    from fastapi.responses import HTMLResponse
+    html = """<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Política de Privacidad - MedicAI</title>
+<style>body{font-family:system-ui,sans-serif;max-width:700px;margin:40px auto;padding:0 20px;color:#333;line-height:1.6}
+h1{color:#0284c7}h2{color:#0369a1;margin-top:2em}</style></head>
+<body>
+<h1>Política de Privacidad — MedicAI</h1>
+<p><strong>Última actualización:</strong> Marzo 2026</p>
+<h2>1. Información que Recopilamos</h2>
+<p>MedicAI recopila información proporcionada voluntariamente por los pacientes a través de WhatsApp, incluyendo: nombre, número de teléfono, y motivo de consulta. Esta información se utiliza exclusivamente para la gestión de citas médicas.</p>
+<h2>2. Uso de la Información</h2>
+<p>La información recopilada se utiliza únicamente para: agendar, confirmar y gestionar citas médicas; enviar recordatorios; y mejorar la atención al paciente. No vendemos ni compartimos datos con terceros.</p>
+<h2>3. Almacenamiento y Seguridad</h2>
+<p>Los datos se almacenan de forma segura en servidores protegidos con cifrado. Solo el personal autorizado del consultorio médico tiene acceso a la información del paciente.</p>
+<h2>4. Derechos del Usuario</h2>
+<p>Los pacientes pueden solicitar la eliminación de sus datos en cualquier momento contactando directamente al consultorio médico.</p>
+<h2>5. WhatsApp y Meta</h2>
+<p>Este servicio utiliza la API de WhatsApp Business de Meta. Los mensajes se procesan para generar respuestas automatizadas. Meta puede procesar metadatos según su propia política de privacidad.</p>
+<h2>6. Contacto</h2>
+<p>Para dudas sobre esta política, contactar al administrador del sistema MedicAI.</p>
+</body></html>"""
+    return HTMLResponse(content=html)
+
 # ============ HEALTH CHECK ============
 
 @api_router.get("/")
