@@ -2429,3 +2429,5 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown():
     logger.info("Shutting down MedicAI API")
+
+# Deploy trigger 2026-03-22 16:29
