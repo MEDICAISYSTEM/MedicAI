@@ -59,14 +59,14 @@ manager = ConnectionManager()
 # Create the main app
 app = FastAPI(title="MedicAI API", version="1.0.0")
 
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins for frontend requests
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-)
+# DIAGNOSTIC: Direct route on app (not router) to test if FastAPI works
+@app.get("/debug")
+async def debug_endpoint():
+    return {"status": "ok", "message": "FastAPI is running", "routes": len(app.routes)}
+
+@app.get("/")
+async def root_redirect():
+    return {"message": "MedicAI API v1.0", "status": "healthy"}
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -2416,12 +2416,17 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 # Include the router in the main app
-app.include_router(api_router)
+try:
+    app.include_router(api_router)
+    print(f"SUCCESS: Router included with {len(api_router.routes)} routes")
+except Exception as e:
+    print(f"ERROR including router: {e}")
 
+# Configure CORS (single definition)
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -2429,5 +2434,3 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown():
     logger.info("Shutting down MedicAI API")
-
-# Deploy trigger 2026-03-22 16:29
