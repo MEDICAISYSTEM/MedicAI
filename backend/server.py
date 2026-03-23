@@ -2263,6 +2263,14 @@ async def meta_webhook_receive(request: Request):
                     continue
                 
                 from_phone = msg.get("from", "")
+                
+                # FIX FOR MEXICO: WhatsApp API often returns numbers with '1' after '52' (e.g., 521...)
+                # But the allowed list requires '52...' without the '1'. 
+                # If we don't strip it, the reply to '521...' will be rejected by Meta with error 131030
+                if from_phone.startswith("521") and len(from_phone) == 13:
+                    from_phone = "52" + from_phone[3:]
+                    logger.info(f"Auto-corrected Mexico prefix from 521 to 52: {from_phone}")
+                    
                 text_body = msg.get("text", {}).get("body", "")
                 timestamp = msg.get("timestamp", "")
                 message_id = msg.get("id", "")
