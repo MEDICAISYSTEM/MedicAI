@@ -595,17 +595,14 @@ async def update_clinic(clinic_id: str, update_data: ClinicUpdate, admin: dict =
 
 @api_router.delete("/superadmin/clinics/{clinic_id}")
 async def delete_clinic(clinic_id: str, admin: dict = Depends(require_super_admin)):
-    """Delete a clinic (soft delete by deactivating)"""
+    """Delete a clinic (hard delete)"""
     try:
-        supabase.table("clinics").update({
-            "is_active": False,
-            "subscription_status": "cancelled",
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }).eq("id", clinic_id).execute()
-        return {"message": "Clinic deactivated"}
+        # Delete explicitly to trigger CASCADE or clean up 
+        supabase.table("clinics").delete().eq("id", clinic_id).execute()
+        return {"message": "Clinic permanently deleted"}
     except Exception as e:
         logger.error(f"Delete clinic error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete clinic")
+        raise HTTPException(status_code=500, detail="Failed to delete clinic (Note: Ensure ON DELETE CASCADE is enabled in Supabase)")
 
 @api_router.post("/superadmin/clinics/{clinic_id}/create-admin")
 async def create_clinic_admin(clinic_id: str, admin_data: AdminCreate, admin: dict = Depends(require_super_admin)):
