@@ -1983,6 +1983,14 @@ ESTILO: Profesional, cortés, directo. Máximo 2-3 oraciones por respuesta. Sin 
             fecha_match = re.search(r'Fecha:\s*(\d{4}-\d{2}-\d{2})', apt_text)
             hora_match = re.search(r'Hora:\s*(\d{1,2}:\d{2})(?:\s*(am|pm|a\.m\.|p\.m\.))?', apt_text, re.IGNORECASE)
             motivo_match = re.search(r'Motivo:\s*(.+?)(?:\n|$)', apt_text)
+            nombre_match = re.search(r'Nombre:\s*(.+?)(?:\n|$)', apt_text)
+            
+            # Auto-save patient name if not set
+            if nombre_match and not patient.get('name'):
+                new_name = nombre_match.group(1).strip()
+                if new_name.lower() != "nombre" and new_name.lower() != "[nombre]":
+                    supabase.table("patients").update({"name": new_name}).eq("id", patient_id).execute()
+                    patient['name'] = new_name
             
             if fecha_match and hora_match:
                 new_date = fecha_match.group(1)
