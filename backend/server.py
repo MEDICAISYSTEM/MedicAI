@@ -16,6 +16,9 @@ from passlib.context import CryptContext
 import json
 import asyncio
 import httpx
+from twilio.rest import Client
+from twilio.request_validator import RequestValidator
+from fastapi import Form
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -59,14 +62,14 @@ manager = ConnectionManager()
 # Create the main app
 app = FastAPI(title="MedicAI API", version="1.0.0")
 
-# DIAGNOSTIC: Direct route on app (not router) to test if FastAPI works
-@app.get("/debug")
-async def debug_endpoint():
-    return {"status": "ok", "message": "FastAPI is running", "routes": len(app.routes)}
-
-@app.get("/")
-async def root_redirect():
-    return {"message": "MedicAI API v1.0", "status": "healthy"}
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins for frontend requests
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -595,14 +598,17 @@ async def update_clinic(clinic_id: str, update_data: ClinicUpdate, admin: dict =
 
 @api_router.delete("/superadmin/clinics/{clinic_id}")
 async def delete_clinic(clinic_id: str, admin: dict = Depends(require_super_admin)):
-    """Delete a clinic (hard delete)"""
+    """Delete a clinic (soft delete by deactivating)"""
     try:
-        # Delete explicitly to trigger CASCADE or clean up 
-        supabase.table("clinics").delete().eq("id", clinic_id).execute()
-        return {"message": "Clinic permanently deleted"}
+        supabase.table("clinics").update({
+            "is_active": False,
+            "subscription_status": "cancelled",
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", clinic_id).execute()
+        return {"message": "Clinic deactivated"}
     except Exception as e:
         logger.error(f"Delete clinic error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete clinic (Note: Ensure ON DELETE CASCADE is enabled in Supabase)")
+        raise HTTPException(status_code=500, detail="Failed to delete clinic")
 
 @api_router.post("/superadmin/clinics/{clinic_id}/create-admin")
 async def create_clinic_admin(clinic_id: str, admin_data: AdminCreate, admin: dict = Depends(require_super_admin)):
@@ -1980,14 +1986,6 @@ ESTILO: Profesional, cortés, directo. Máximo 2-3 oraciones por respuesta. Sin 
             fecha_match = re.search(r'Fecha:\s*(\d{4}-\d{2}-\d{2})', apt_text)
             hora_match = re.search(r'Hora:\s*(\d{1,2}:\d{2})(?:\s*(am|pm|a\.m\.|p\.m\.))?', apt_text, re.IGNORECASE)
             motivo_match = re.search(r'Motivo:\s*(.+?)(?:\n|$)', apt_text)
-            nombre_match = re.search(r'Nombre:\s*(.+?)(?:\n|$)', apt_text)
-            
-            # Auto-save patient name if not set
-            if nombre_match and not patient.get('name'):
-                new_name = nombre_match.group(1).strip()
-                if new_name.lower() != "nombre" and new_name.lower() != "[nombre]":
-                    supabase.table("patients").update({"name": new_name}).eq("id", patient_id).execute()
-                    patient['name'] = new_name
             
             if fecha_match and hora_match:
                 new_date = fecha_match.group(1)
@@ -2148,189 +2146,123 @@ ESTILO: Profesional, cortés, directo. Máximo 2-3 oraciones por respuesta. Sin 
         logger.error(f"Webhook processing error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process message: {str(e)}")
 
-# ============ DIRECT META WHATSAPP WEBHOOK (No Make.com) ============
+# ============ DIRECT TWILIO WHATSAPP WEBHOOK ============
 
-async def send_whatsapp_reply(phone_number_id: str, to: str, message_text: str):
-    """Send a WhatsApp reply directly via Meta Graph API"""
-    if not WHATSAPP_ACCESS_TOKEN:
-        logger.warning("WHATSAPP_ACCESS_TOKEN not set - cannot send reply")
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
+twilio_client = None
+if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+    twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+async def send_whatsapp_reply(from_number: str, to: str, message_text: str):
+    """Send a WhatsApp reply directly via Twilio API"""
+    if not twilio_client:
+        logger.warning("Twilio credentials not set - cannot send reply")
         return None
     
-    url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": message_text}
-    }
+    # Ensure whatsapp: prefix
+    if not from_number.startswith('whatsapp:'):
+        from_number = f"whatsapp:{from_number}"
+    if not to.startswith('whatsapp:'):
+        to = f"whatsapp:{to}"
     
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, json=payload, headers=headers)
-            if response.status_code == 200:
-                logger.info(f"WhatsApp reply sent to {to} via phone_id {phone_number_id}")
-                return response.json()
-            else:
-                logger.error(f"WhatsApp send failed: {response.status_code} - {response.text}")
-                return None
+        def _send():
+            return twilio_client.messages.create(
+                body=message_text,
+                from_=from_number,
+                to=to
+            )
+        message = await asyncio.to_thread(_send)
+        logger.info(f"WhatsApp reply sent to {to} via Twilio {from_number} (SID: {message.sid})")
+        return message.sid
     except Exception as e:
-        logger.error(f"WhatsApp send error: {e}")
+        logger.error(f"Twilio send error: {e}")
         return None
 
-async def mark_message_as_read(phone_number_id: str, message_id: str):
-    """Mark a WhatsApp message as read (blue checkmarks) via Meta Graph API"""
-    if not WHATSAPP_ACCESS_TOKEN or not message_id:
-        return
+@api_router.post("/webhook/twilio")
+async def twilio_webhook_receive(request: Request):
+    """
+    Receive raw webhooks from Twilio.
+    Parses the Twilio urlencoded format, extracts phone/message/destination number,
+    calls existing webhook logic, then sends reply directly via Twilio SDK.
+    Supports multi-number: routes by destination number (To).
+    """
+    form_data = await request.form()
     
-    url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "status": "read",
-        "message_id": message_id
-    }
+    # Validate Twilio Signature
+    if TWILIO_AUTH_TOKEN:
+        validator = RequestValidator(TWILIO_AUTH_TOKEN)
+        signature = request.headers.get("X-Twilio-Signature", "")
+        # Handle proxy setups (like Ngrok) where external is HTTPS but internal is HTTP
+        url = str(request.url)
+        if request.headers.get("x-forwarded-proto") == "https" and url.startswith("http://"):
+            url = url.replace("http://", "https://", 1)
+        
+        # In testing with Ngrok sometimes the host header might differ, so we log instead of strict block for now
+        is_valid = validator.validate(url, dict(form_data), signature)
+        if not is_valid:
+            logger.warning(f"Twilio signature validation failed for URL: {url} - Check proxy & host headers.")
+            # Uncomment for production strict mode:
+            # raise HTTPException(status_code=403, detail="Invalid Twilio signature")
     
+    # Twilio fields
+    from_phone_raw = form_data.get("From", "")
+    to_phone_raw = form_data.get("To", "")
+    text_body = form_data.get("Body", "")
+    
+    if not from_phone_raw or not text_body:
+        from fastapi.responses import Response
+        return Response(content="<Response></Response>", media_type="text/xml")
+        
+    # Remove 'whatsapp:' prefix for internal processing
+    from_phone = from_phone_raw.replace("whatsapp:", "").replace("+", "").strip()
+    destination_number = to_phone_raw.replace("whatsapp:", "").replace("+", "").strip()
+    
+    logger.info(f"Twilio webhook: from={from_phone}, to={destination_number}, msg={text_body[:50]}")
+    
+    # Reuse existing webhook logic via internal call
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(url, json=payload, headers=headers)
-            if response.status_code == 200:
-                logger.debug(f"Message {message_id} marked as read")
-            else:
-                logger.warning(f"Mark read failed: {response.status_code} - {response.text}")
+        webhook_message = WebhookMessage(
+            phone=from_phone,
+            message=text_body,
+            to=destination_number
+        )
+        result = await whatsapp_webhook(webhook_message)
+        
+        # Send reply directly via Twilio
+        if result.get("should_reply") and result.get("response"):
+            # Determine which number to use for sending
+            # If we resolved the clinic by To number, prefer the clinic's whatsapp_number
+            send_from = destination_number
+            if result.get("clinic_id"):
+                clinic_query = supabase.table("clinics").select("whatsapp_number").eq("id", result["clinic_id"]).execute()
+                if clinic_query.data and clinic_query.data[0].get("whatsapp_number"):
+                    send_from = clinic_query.data[0]["whatsapp_number"]
+            
+            await send_whatsapp_reply(
+                from_number=send_from,
+                to=from_phone,
+                message_text=result["response"]
+            )
     except Exception as e:
-        logger.warning(f"Mark read error (non-critical): {e}")
+        logger.error(f"Error processing Twilio webhook message: {e}")
+    
+    # Return empty TwiML response to acknowledge Twilio
+    from fastapi.responses import Response
+    return Response(content="<Response></Response>", media_type="text/xml")
 
-@api_router.get("/webhook/meta")
-async def meta_webhook_verify(
-    hub_mode: str = Query(None, alias="hub.mode"),
-    hub_verify_token: str = Query(None, alias="hub.verify_token"),
-    hub_challenge: str = Query(None, alias="hub.challenge")
-):
-    """Meta Webhook verification endpoint - responds to Meta's GET challenge"""
-    if hub_mode == "subscribe" and hub_verify_token == WHATSAPP_VERIFY_TOKEN:
-        logger.info("Meta webhook verified successfully")
-        return PlainTextResponse(content=hub_challenge)
-    
-    logger.warning(f"Meta webhook verification failed: mode={hub_mode}, token={hub_verify_token}")
-    raise HTTPException(status_code=403, detail="Verification failed")
-
-@api_router.post("/webhook/meta")
-async def meta_webhook_receive(request: Request):
-    """
-    Receive raw webhooks from Meta Cloud API.
-    Parses the Meta format, extracts phone/message/destination number,
-    calls existing webhook logic, then sends reply directly via Graph API.
-    Supports multi-number: routes by whatsapp_phone_id first, then display_phone_number.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        return {"status": "ok"}
-    
-    # Meta sends various event types - only process messages
-    if body.get("object") != "whatsapp_business_account":
-        return {"status": "ok"}
-    
-    for entry in body.get("entry", []):
-        for change in entry.get("changes", []):
-            value = change.get("value", {})
-            
-            # Extract metadata (which number received the message)
-            metadata = value.get("metadata", {})
-            display_phone_number = metadata.get("display_phone_number", "")
-            phone_number_id = metadata.get("phone_number_id", "")
-            
-            # Resolve the destination number for clinic matching
-            # Priority 1: Match by phone_number_id (most reliable, set in clinic config)
-            # Priority 2: Fall back to display_phone_number from Meta
-            destination_number = display_phone_number.replace("+", "").strip()
-            if phone_number_id:
-                clinic_by_phone_id = supabase.table("clinics").select("whatsapp_number").eq("whatsapp_phone_id", phone_number_id).execute()
-                if clinic_by_phone_id.data and clinic_by_phone_id.data[0].get("whatsapp_number"):
-                    destination_number = clinic_by_phone_id.data[0]["whatsapp_number"]
-                    logger.info(f"Clinic resolved by phone_number_id={phone_number_id} -> {destination_number}")
-            
-            # Process each message
-            messages_list = value.get("messages", [])
-            if not messages_list:
-                continue
-            
-            for msg in messages_list:
-                # Only process text messages for now
-                if msg.get("type") != "text":
-                    continue
-                
-                from_phone = msg.get("from", "")
-                
-                # FIX FOR MEXICO: WhatsApp API often returns numbers with '1' after '52' (e.g., 521...)
-                # But the allowed list requires '52...' without the '1'. 
-                # If we don't strip it, the reply to '521...' will be rejected by Meta with error 131030
-                if from_phone.startswith("521") and len(from_phone) == 13:
-                    from_phone = "52" + from_phone[3:]
-                    logger.info(f"Auto-corrected Mexico prefix from 521 to 52: {from_phone}")
-                    
-                text_body = msg.get("text", {}).get("body", "")
-                timestamp = msg.get("timestamp", "")
-                message_id = msg.get("id", "")
-                
-                if not from_phone or not text_body:
-                    continue
-                
-                logger.info(f"Meta webhook: from={from_phone}, to={destination_number}, phone_id={phone_number_id}, msg={text_body[:50]}")
-                
-                # Mark message as read immediately (blue checkmarks for the patient)
-                if phone_number_id and message_id:
-                    asyncio.ensure_future(mark_message_as_read(phone_number_id, message_id))
-                
-                # Reuse existing webhook logic via internal call
-                try:
-                    webhook_message = WebhookMessage(
-                        phone=from_phone,
-                        message=text_body,
-                        timestamp=timestamp,
-                        to=destination_number
-                    )
-                    result = await whatsapp_webhook(webhook_message)
-                    
-                    # Send reply directly via Meta API
-                    if result.get("should_reply") and result.get("response"):
-                        # Determine which phone_number_id to use for sending
-                        # If we resolved the clinic by phone_number_id, prefer the clinic's whatsapp_phone_id
-                        send_phone_id = phone_number_id
-                        if result.get("clinic_id"):
-                            clinic_phone_id_query = supabase.table("clinics").select("whatsapp_phone_id").eq("id", result["clinic_id"]).execute()
-                            if clinic_phone_id_query.data and clinic_phone_id_query.data[0].get("whatsapp_phone_id"):
-                                send_phone_id = clinic_phone_id_query.data[0]["whatsapp_phone_id"]
-                        
-                        await send_whatsapp_reply(
-                            phone_number_id=send_phone_id,
-                            to=from_phone,
-                            message_text=result["response"]
-                        )
-                except Exception as e:
-                    logger.error(f"Error processing Meta webhook message: {e}")
-    
-    # Always return 200 to Meta to prevent retries
-    return {"status": "ok"}
-
-@api_router.get("/webhook/meta/status")
-async def meta_webhook_status(admin: dict = Depends(require_super_admin)):
-    """Check Meta webhook integration status - Super Admin only"""
+@api_router.get("/webhook/twilio/status")
+async def twilio_webhook_status(admin: dict = Depends(require_super_admin)):
+    """Check Twilio webhook integration status - Super Admin only"""
     try:
         # Check env vars
-        has_access_token = bool(WHATSAPP_ACCESS_TOKEN)
-        has_verify_token = bool(WHATSAPP_VERIFY_TOKEN)
+        has_account_sid = bool(TWILIO_ACCOUNT_SID)
+        has_auth_token = bool(TWILIO_AUTH_TOKEN)
         
         # Get clinics with WhatsApp configured
         clinics_result = supabase.table("clinics").select(
-            "id, code, name, whatsapp_number, whatsapp_phone_id, whatsapp_display_name, is_active"
+            "id, code, name, whatsapp_number, is_active"
         ).eq("is_active", True).execute()
         
         configured_clinics = []
@@ -2341,38 +2273,32 @@ async def meta_webhook_status(admin: dict = Depends(require_super_admin)):
                 "id": clinic["id"],
                 "code": clinic["code"],
                 "name": clinic["name"],
-                "whatsapp_number": clinic.get("whatsapp_number"),
-                "whatsapp_phone_id": clinic.get("whatsapp_phone_id"),
-                "whatsapp_display_name": clinic.get("whatsapp_display_name"),
+                "whatsapp_number": clinic.get("whatsapp_number")
             }
-            if clinic.get("whatsapp_phone_id") and clinic.get("whatsapp_number"):
+            if clinic.get("whatsapp_number"):
                 clinic_info["status"] = "ready"
                 configured_clinics.append(clinic_info)
-            elif clinic.get("whatsapp_number"):
-                clinic_info["status"] = "partial"
-                clinic_info["missing"] = "whatsapp_phone_id"
-                unconfigured_clinics.append(clinic_info)
             else:
                 clinic_info["status"] = "legacy"
-                clinic_info["missing"] = "whatsapp_number, whatsapp_phone_id"
+                clinic_info["missing"] = "whatsapp_number"
                 unconfigured_clinics.append(clinic_info)
         
         return {
-            "integration": "meta_direct",
+            "integration": "twilio",
             "environment": {
-                "WHATSAPP_ACCESS_TOKEN": "✅ configured" if has_access_token else "❌ missing",
-                "WHATSAPP_VERIFY_TOKEN": "✅ configured" if has_verify_token else "❌ missing",
+                "TWILIO_ACCOUNT_SID": "✅ configured" if has_account_sid else "❌ missing",
+                "TWILIO_AUTH_TOKEN": "✅ configured" if has_auth_token else "❌ missing",
             },
-            "webhook_url": "/api/webhook/meta",
-            "webhook_methods": ["GET (verification)", "POST (messages)"],
+            "webhook_url": "/api/webhook/twilio",
+            "webhook_methods": ["POST (messages)"],
             "configured_clinics": len(configured_clinics),
             "unconfigured_clinics": len(unconfigured_clinics),
             "clinics": configured_clinics + unconfigured_clinics,
-            "ready": has_access_token and has_verify_token and len(configured_clinics) > 0
+            "ready": has_account_sid and has_auth_token and len(configured_clinics) > 0
         }
     except Exception as e:
-        logger.error(f"Meta status check error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to check Meta status")
+        logger.error(f"Twilio status check error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to check Twilio status")
 
 # ============ PRIVACY POLICY (required by Meta) ============
 
@@ -2429,17 +2355,12 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 # Include the router in the main app
-try:
-    app.include_router(api_router)
-    print(f"SUCCESS: Router included with {len(api_router.routes)} routes")
-except Exception as e:
-    print(f"ERROR including router: {e}")
+app.include_router(api_router)
 
-# Configure CORS (single definition)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
     allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
