@@ -17,9 +17,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "../components/ui/dialog";
-import { 
-  Building2, 
-  Users, 
+import {
+  Building2,
+  Users,
   Calendar,
   AlertTriangle,
   Plus,
@@ -44,7 +44,7 @@ export default function SuperAdmin() {
   const [clinics, setClinics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  
+
   // Dialogs
   const [clinicDialogOpen, setClinicDialogOpen] = useState(false);
   const [adminDialogOpen, setAdminDialogOpen] = useState(false);
@@ -53,7 +53,7 @@ export default function SuperAdmin() {
   const [selectedClinic, setSelectedClinic] = useState(null);
   const [deletingClinic, setDeletingClinic] = useState(null);
   const [clinicStats, setClinicStats] = useState(null);
-  
+
   // Forms
   const [clinicForm, setClinicForm] = useState({
     code: "",
@@ -71,7 +71,7 @@ export default function SuperAdmin() {
     whatsapp_phone_id: "",
     whatsapp_display_name: ""
   });
-  
+
   const [adminForm, setAdminForm] = useState({
     email: "",
     password: "",
@@ -143,7 +143,7 @@ export default function SuperAdmin() {
       toast.error("Código y nombre son requeridos");
       return;
     }
-    
+
     try {
       if (editingClinic) {
         await updateClinic(editingClinic.id, clinicForm);
@@ -188,10 +188,8 @@ export default function SuperAdmin() {
   };
 
   const getWhatsAppStatus = (clinic) => {
-    if (clinic.whatsapp_phone_id && clinic.whatsapp_number) {
-      return { color: "emerald", label: "Meta API", icon: Wifi };
-    } else if (clinic.whatsapp_number) {
-      return { color: "amber", label: "Parcial", icon: WifiOff };
+    if (clinic.whatsapp_number) {
+      return { color: "emerald", label: "Twilio", icon: Wifi };
     } else {
       return { color: "slate", label: "Código", icon: WifiOff };
     }
@@ -200,14 +198,14 @@ export default function SuperAdmin() {
   const handleOpenAdminDialog = async (clinic) => {
     setSelectedClinic(clinic);
     setAdminForm({ email: "", password: "", name: clinic.name });
-    
+
     try {
       const statsRes = await getClinicStats(clinic.id);
       setClinicStats(statsRes.data);
     } catch (error) {
       setClinicStats(null);
     }
-    
+
     setAdminDialogOpen(true);
   };
 
@@ -216,7 +214,7 @@ export default function SuperAdmin() {
       toast.error("Todos los campos son requeridos");
       return;
     }
-    
+
     try {
       await createClinicAdmin(selectedClinic.id, adminForm);
       toast.success("Cuenta de acceso creada exitosamente");
@@ -231,7 +229,7 @@ export default function SuperAdmin() {
     toast.success("Copiado al portapapeles");
   };
 
-  const filteredClinics = clinics.filter(clinic => 
+  const filteredClinics = clinics.filter(clinic =>
     clinic.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     clinic.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     clinic.specialty?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -314,11 +312,10 @@ export default function SuperAdmin() {
         <CardContent>
           <div className="space-y-4">
             {filteredClinics.map((clinic) => (
-              <div 
+              <div
                 key={clinic.id}
-                className={`p-4 rounded-xl border transition-colors ${
-                  clinic.is_active ? 'bg-white border-slate-200 hover:border-sky-200' : 'bg-slate-50 border-slate-200 opacity-60'
-                }`}
+                className={`p-4 rounded-xl border transition-colors ${clinic.is_active ? 'bg-white border-slate-200 hover:border-sky-200' : 'bg-slate-50 border-slate-200 opacity-60'
+                  }`}
                 data-testid={`clinic-card-${clinic.id}`}
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -354,34 +351,34 @@ export default function SuperAdmin() {
                       </p>
                     </div>
                   </div>
-                  
+
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                     {/* WhatsApp Link */}
                     <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
                       <span className="text-xs text-slate-500">Link WhatsApp:</span>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         className="h-7 px-2"
                         onClick={() => copyToClipboard(clinic.whatsapp_link)}
                       >
                         <Copy className="w-3 h-3 mr-1" />
                         Copiar
                       </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         className="h-7 px-2"
                         onClick={() => window.open(clinic.whatsapp_link, '_blank')}
                       >
                         <ExternalLink className="w-3 h-3" />
                       </Button>
                     </div>
-                    
+
                     {/* Actions */}
                     <div className="flex items-center gap-2">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={() => handleOpenAdminDialog(clinic)}
                         data-testid={`manage-clinic-${clinic.id}`}
@@ -389,15 +386,15 @@ export default function SuperAdmin() {
                         <UserPlus className="w-3 h-3 mr-1" />
                         Gestionar
                       </Button>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={() => handleOpenClinicDialog(clinic)}
                       >
                         <Edit2 className="w-3 h-3" />
                       </Button>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 hover:border-red-200"
                         onClick={() => handleOpenDeleteDialog(clinic)}
@@ -405,7 +402,7 @@ export default function SuperAdmin() {
                       >
                         <Trash2 className="w-3 h-3" />
                       </Button>
-                      <Switch 
+                      <Switch
                         checked={clinic.is_active}
                         onCheckedChange={() => handleToggleActive(clinic)}
                       />
@@ -427,7 +424,7 @@ export default function SuperAdmin() {
               {editingClinic ? 'Editar Clínica' : 'Nueva Clínica'}
             </DialogTitle>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -454,7 +451,7 @@ export default function SuperAdmin() {
                 />
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Nombre del consultorio</Label>
@@ -475,7 +472,7 @@ export default function SuperAdmin() {
                 />
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Teléfono</Label>
@@ -496,7 +493,7 @@ export default function SuperAdmin() {
                 />
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <Label>Dirección</Label>
               <Input
@@ -506,7 +503,7 @@ export default function SuperAdmin() {
                 className="input-base"
               />
             </div>
-            
+
             <div className="space-y-2">
               <Label>Mensaje de bienvenida personalizado</Label>
               <Textarea
@@ -516,7 +513,7 @@ export default function SuperAdmin() {
                 className="input-base min-h-[80px]"
               />
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Precio de consulta</Label>
@@ -542,12 +539,12 @@ export default function SuperAdmin() {
                 </select>
               </div>
             </div>
-            
+
             {/* WhatsApp Configuration */}
             <div className="p-4 bg-green-50 rounded-xl border border-green-200">
               <p className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                WhatsApp del Doctor (Número Independiente)
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" /></svg>
+                WhatsApp del Doctor (Twilio)
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -571,25 +568,14 @@ export default function SuperAdmin() {
                   <p className="text-xs text-green-700">Nombre que verá el paciente en WhatsApp</p>
                 </div>
               </div>
-              <div className="mt-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Phone ID (Meta API)</Label>
-                  <Input
-                    value={clinicForm.whatsapp_phone_id}
-                    onChange={(e) => setClinicForm({ ...clinicForm, whatsapp_phone_id: e.target.value })}
-                    placeholder="Ej: 123456789012345"
-                    className="input-base font-mono text-sm"
-                  />
-                  <p className="text-xs text-green-700">ID del teléfono en Meta Cloud API (se obtiene al registrar el número)</p>
-                </div>
-              </div>
+
               {!clinicForm.whatsapp_number && (
                 <p className="text-xs text-amber-600 mt-2 bg-amber-50 p-2 rounded">
                   ⚠️ Sin número propio, se usará el número compartido de MedicAI con código #{clinicForm.code || 'XXX'}
                 </p>
               )}
             </div>
-            
+
             <div className="space-y-2">
               <Label>Notas internas (solo para ti)</Label>
               <Textarea
@@ -600,7 +586,7 @@ export default function SuperAdmin() {
               />
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setClinicDialogOpen(false)}>
               Cancelar
@@ -621,14 +607,14 @@ export default function SuperAdmin() {
               Gestionar: {selectedClinic?.name}
             </DialogTitle>
           </DialogHeader>
-          
+
           {selectedClinic && (
             <Tabs defaultValue="stats" className="mt-4">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="stats">Estadísticas</TabsTrigger>
                 <TabsTrigger value="admin">Crear Acceso</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="stats" className="space-y-4 pt-4">
                 {clinicStats ? (
                   <div className="grid grid-cols-2 gap-4">
@@ -660,7 +646,7 @@ export default function SuperAdmin() {
                 ) : (
                   <p className="text-center text-slate-500 py-4">Sin datos aún</p>
                 )}
-                
+
                 <div className="p-4 bg-sky-50 rounded-xl">
                   <p className="text-sm font-medium text-slate-700 mb-2">Link de WhatsApp para este doctor:</p>
                   <div className="flex items-center gap-2">
@@ -673,12 +659,12 @@ export default function SuperAdmin() {
                   </div>
                 </div>
               </TabsContent>
-              
+
               <TabsContent value="admin" className="space-y-4 pt-4">
                 <p className="text-sm text-slate-600">
                   Crea una cuenta para que {selectedClinic.name} pueda acceder al panel de administración.
                 </p>
-                
+
                 <div className="space-y-3">
                   <div className="space-y-2">
                     <Label>Nombre</Label>
@@ -708,7 +694,7 @@ export default function SuperAdmin() {
                     />
                   </div>
                 </div>
-                
+
                 <Button onClick={handleCreateAdmin} className="w-full btn-primary">
                   <UserPlus className="w-4 h-4 mr-2" />
                   Crear cuenta de acceso
@@ -731,7 +717,7 @@ export default function SuperAdmin() {
               ¿Estás seguro de que deseas eliminar a <strong>{deletingClinic?.name}</strong> ({deletingClinic?.code})?
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="py-3">
             <div className="p-3 bg-red-50 rounded-lg border border-red-200">
               <p className="text-sm text-red-700">
@@ -739,12 +725,12 @@ export default function SuperAdmin() {
               </p>
             </div>
           </div>
-          
+
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => { setDeleteDialogOpen(false); setDeletingClinic(null); }}>
               Cancelar
             </Button>
-            <Button 
+            <Button
               className="bg-red-600 hover:bg-red-700 text-white"
               onClick={handleDeleteClinic}
             >
