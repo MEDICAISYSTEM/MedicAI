@@ -88,4 +88,10 @@ export const deleteClinic = (id) => api.delete(`/superadmin/clinics/${id}`);
 export const createClinicAdmin = (clinicId, data) => api.post(`/superadmin/clinics/${clinicId}/create-admin`, data);
 export const getClinicStats = (clinicId) => api.get(`/superadmin/clinics/${clinicId}/stats`);
 
+// WhatsApp Integration (Evolution API)
+export const createWhatsAppInstance = (clinicId) => api.post(`/whatsapp/instance/create?clinic_id=${clinicId}`);
+export const getWhatsAppQr = (clinicId) => api.get(`/whatsapp/instance/qr?clinic_id=${clinicId}`);
+export const getWhatsAppStatus = (clinicId) => api.get(`/whatsapp/instance/status?clinic_id=${clinicId}`);
+export const deleteWhatsAppInstance = (clinicId) => api.delete(`/whatsapp/instance/delete?clinic_id=${clinicId}`);
+
 export default api;
