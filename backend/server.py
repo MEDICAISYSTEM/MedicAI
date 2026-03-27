@@ -1461,16 +1461,31 @@ async def whatsapp_webhook(message: WebhookMessage):
         is_first_contact = False # Flag to track if this is first message with code/name
         explicit_clinic_matched = False # Flag to track if clinic was explicitly matched in this message
         
-        # 0. PRIORITY: Resolve clinic by destination WhatsApp number (multi-number mode)
+        # 0. PRIORITY: Resolve clinic by destination WhatsApp number or instance_id (Evolution API multi-tenant mode)
         if message.to:
             destination_number = message.to.replace('+', '').strip()
-            clinic_by_number = supabase.table("clinics").select("*").eq("whatsapp_number", destination_number).eq("is_active", True).execute()
-            if clinic_by_number.data:
-                clinic = clinic_by_number.data[0]
-                clinic_id = clinic["id"]
-                is_first_contact = True
-                explicit_clinic_matched = True
-                logger.info(f"Clinic {clinic_id} resolved by destination number: {destination_number}")
+            
+            # Check if destination string is a direct UUID (Evolution API instance ID)
+            import uuid
+            try:
+                # If valid UUID, treat it as clinic ID directly
+                uuid.UUID(message.to)
+                clinic_by_id = supabase.table("clinics").select("*").eq("id", message.to).eq("is_active", True).execute()
+                if clinic_by_id.data:
+                    clinic = clinic_by_id.data[0]
+                    clinic_id = clinic["id"]
+                    is_first_contact = True
+                    explicit_clinic_matched = True
+                    logger.info(f"Clinic {clinic_id} resolved directly by instance ID")
+            except ValueError:
+                # Not a UUID, treat as classic phone number
+                clinic_by_number = supabase.table("clinics").select("*").eq("whatsapp_number", destination_number).eq("is_active", True).execute()
+                if clinic_by_number.data:
+                    clinic = clinic_by_number.data[0]
+                    clinic_id = clinic["id"]
+                    is_first_contact = True
+                    explicit_clinic_matched = True
+                    logger.info(f"Clinic {clinic_id} resolved by destination number: {destination_number}")
         
         # 1. Try to extract clinic code from message
         # Try multiple formats to find clinic code
@@ -2146,159 +2161,247 @@ ESTILO: Profesional, cortés, directo. Máximo 2-3 oraciones por respuesta. Sin 
         logger.error(f"Webhook processing error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process message: {str(e)}")
 
-# ============ DIRECT TWILIO WHATSAPP WEBHOOK ============
+# ============ DIRECT EVOLUTION API (UNOFFICIAL WHATSAPP WEBSOCKET) ============
 
-TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
-TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
-twilio_client = None
-if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
-    twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+EVOLUTION_API_URL = os.environ.get('EVOLUTION_API_URL', 'http://localhost:8080')
+EVOLUTION_GLOBAL_API_KEY = os.environ.get('EVOLUTION_GLOBAL_API_KEY', 'your-global-api-key')
 
-async def send_whatsapp_reply(from_number: str, to: str, message_text: str):
-    """Send a WhatsApp reply directly via Twilio API"""
-    if not twilio_client:
-        logger.warning("Twilio credentials not set - cannot send reply")
+async def send_whatsapp_reply(instance_id: str, to: str, message_text: str):
+    """Send a WhatsApp reply via Evolution API"""
+    if not EVOLUTION_GLOBAL_API_KEY:
+        logger.warning("Evolution API Key not set - cannot send reply")
         return None
     
-    # Ensure whatsapp: prefix
-    if not from_number.startswith('whatsapp:'):
-        from_number = f"whatsapp:{from_number}"
-    if not to.startswith('whatsapp:'):
-        to = f"whatsapp:{to}"
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/message/sendText/{instance_id}"
+    headers = {
+        "apikey": EVOLUTION_GLOBAL_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    # Ensure format is correct for Evolution API (needs just country code + number, e.g. 5215512345678)
+    to_phone = to.replace('whatsapp:', '').replace('+', '').strip()
+    
+    payload = {
+        "number": to_phone,
+        "options": {
+            "delay": 1200,
+            "presence": "composing"
+        },
+        "textMessage": {
+            "text": message_text
+        }
+    }
     
     try:
-        def _send():
-            return twilio_client.messages.create(
-                body=message_text,
-                from_=from_number,
-                to=to
-            )
-        message = await asyncio.to_thread(_send)
-        logger.info(f"WhatsApp reply sent to {to} via Twilio {from_number} (SID: {message.sid})")
-        return message.sid
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            if response.status_code in (200, 201):
+                logger.info(f"WhatsApp reply sent to {to} via Evolution API instance {instance_id}")
+                return response.json()
+            else:
+                logger.error(f"Evolution API send failed: {response.status_code} - {response.text}")
+                return None
     except Exception as e:
-        logger.error(f"Twilio send error: {e}")
+        logger.error(f"Evolution API send error: {e}")
         return None
 
-@api_router.post("/webhook/twilio")
-async def twilio_webhook_receive(request: Request):
+@api_router.post("/webhook/evolution")
+async def evolution_webhook_receive(request: Request):
     """
-    Receive raw webhooks from Twilio.
-    Parses the Twilio urlencoded format, extracts phone/message/destination number,
-    calls existing webhook logic, then sends reply directly via Twilio SDK.
-    Supports multi-number: routes by destination number (To).
+    Receive raw webhooks from Evolution API.
+    Evolution API sends JSON with 'event', 'instance' and 'data' fields.
     """
-    form_data = await request.form()
-    
-    # Validate Twilio Signature
-    if TWILIO_AUTH_TOKEN:
-        validator = RequestValidator(TWILIO_AUTH_TOKEN)
-        signature = request.headers.get("X-Twilio-Signature", "")
-        # Handle proxy setups (like Ngrok) where external is HTTPS but internal is HTTP
-        url = str(request.url)
-        if request.headers.get("x-forwarded-proto") == "https" and url.startswith("http://"):
-            url = url.replace("http://", "https://", 1)
-        
-        # In testing with Ngrok sometimes the host header might differ, so we log instead of strict block for now
-        is_valid = validator.validate(url, dict(form_data), signature)
-        if not is_valid:
-            logger.warning(f"Twilio signature validation failed for URL: {url} - Check proxy & host headers.")
-            # Uncomment for production strict mode:
-            # raise HTTPException(status_code=403, detail="Invalid Twilio signature")
-    
-    # Twilio fields
-    from_phone_raw = form_data.get("From", "")
-    to_phone_raw = form_data.get("To", "")
-    text_body = form_data.get("Body", "")
-    
-    if not from_phone_raw or not text_body:
-        from fastapi.responses import Response
-        return Response(content="<Response></Response>", media_type="text/xml")
-        
-    # Remove 'whatsapp:' prefix for internal processing
-    from_phone = from_phone_raw.replace("whatsapp:", "").replace("+", "").strip()
-    destination_number = to_phone_raw.replace("whatsapp:", "").replace("+", "").strip()
-    
-    logger.info(f"Twilio webhook: from={from_phone}, to={destination_number}, msg={text_body[:50]}")
-    
-    # Reuse existing webhook logic via internal call
     try:
+        body = await request.json()
+    except Exception:
+        return {"status": "ok"}
+    
+    event_type = body.get("event")
+    
+    # We only care about new incoming messages
+    if event_type != "messages.upsert":
+        return {"status": "ok"}
+        
+    instance_id = body.get("instance", "")
+    message_data = body.get("data", {}).get("message", {})
+    key_data = body.get("data", {}).get("key", {})
+    
+    # Ignore messages sent by the bot itself
+    if key_data.get("fromMe", False):
+        return {"status": "ok"}
+        
+    from_phone_raw = key_data.get("remoteJid", "")
+    from_phone = from_phone_raw.split("@")[0].strip() if "@" in from_phone_raw else from_phone_raw
+    
+    # Extract text (could be in conversation or extendedTextMessage)
+    text_body = message_data.get("conversation") or message_data.get("extendedTextMessage", {}).get("text") or ""
+    
+    if not text_body or not from_phone or not instance_id:
+        return {"status": "ok"}
+        
+    logger.info(f"Evolution webhook: from={from_phone}, instance={instance_id}, msg={text_body[:50]}")
+    
+    try:
+        # Reuse existing webhook logic. Note: 'to' becomes the instance_id so it can be uniquely mapped to a clinic
         webhook_message = WebhookMessage(
             phone=from_phone,
             message=text_body,
-            to=destination_number
+            to=instance_id  # We map instance_id to 'to' so whatsapp_webhook can resolve the clinic
         )
         result = await whatsapp_webhook(webhook_message)
         
-        # Send reply directly via Twilio
+        # Send reply directly via Evolution API
         if result.get("should_reply") and result.get("response"):
-            # Determine which number to use for sending
-            # If we resolved the clinic by To number, prefer the clinic's whatsapp_number
-            send_from = destination_number
-            if result.get("clinic_id"):
-                clinic_query = supabase.table("clinics").select("whatsapp_number").eq("id", result["clinic_id"]).execute()
-                if clinic_query.data and clinic_query.data[0].get("whatsapp_number"):
-                    send_from = clinic_query.data[0]["whatsapp_number"]
-            
+            # Use instance_id as the sender
             await send_whatsapp_reply(
-                from_number=send_from,
+                instance_id=instance_id,
                 to=from_phone,
                 message_text=result["response"]
             )
     except Exception as e:
-        logger.error(f"Error processing Twilio webhook message: {e}")
+        logger.error(f"Error processing Evolution webhook message: {e}")
     
-    # Return empty TwiML response to acknowledge Twilio
-    from fastapi.responses import Response
-    return Response(content="<Response></Response>", media_type="text/xml")
+    return {"status": "ok"}
 
-@api_router.get("/webhook/twilio/status")
-async def twilio_webhook_status(admin: dict = Depends(require_super_admin)):
-    """Check Twilio webhook integration status - Super Admin only"""
+@api_router.get("/webhook/evolution/status")
+async def evolution_webhook_status(admin: dict = Depends(require_super_admin)):
+    """Check Evolution API integration status"""
     try:
-        # Check env vars
-        has_account_sid = bool(TWILIO_ACCOUNT_SID)
-        has_auth_token = bool(TWILIO_AUTH_TOKEN)
+        has_api_url = bool(EVOLUTION_API_URL)
+        has_api_key = bool(EVOLUTION_GLOBAL_API_KEY)
         
-        # Get clinics with WhatsApp configured
         clinics_result = supabase.table("clinics").select(
-            "id, code, name, whatsapp_number, is_active"
+            "id, code, name, is_active"
         ).eq("is_active", True).execute()
         
-        configured_clinics = []
-        unconfigured_clinics = []
-        
-        for clinic in (clinics_result.data or []):
-            clinic_info = {
-                "id": clinic["id"],
-                "code": clinic["code"],
-                "name": clinic["name"],
-                "whatsapp_number": clinic.get("whatsapp_number")
-            }
-            if clinic.get("whatsapp_number"):
-                clinic_info["status"] = "ready"
-                configured_clinics.append(clinic_info)
-            else:
-                clinic_info["status"] = "legacy"
-                clinic_info["missing"] = "whatsapp_number"
-                unconfigured_clinics.append(clinic_info)
-        
         return {
-            "integration": "twilio",
+            "integration": "evolution",
             "environment": {
-                "TWILIO_ACCOUNT_SID": "✅ configured" if has_account_sid else "❌ missing",
-                "TWILIO_AUTH_TOKEN": "✅ configured" if has_auth_token else "❌ missing",
+                "EVOLUTION_API_URL": "✅ configured" if has_api_url else "❌ missing",
+                "EVOLUTION_GLOBAL_API_KEY": "✅ configured" if has_api_key else "❌ missing",
             },
-            "webhook_url": "/api/webhook/twilio",
-            "webhook_methods": ["POST (messages)"],
-            "configured_clinics": len(configured_clinics),
-            "unconfigured_clinics": len(unconfigured_clinics),
-            "clinics": configured_clinics + unconfigured_clinics,
-            "ready": has_account_sid and has_auth_token and len(configured_clinics) > 0
+            "webhook_url": "/api/webhook/evolution",
+            "clinics": len(clinics_result.data or [])
         }
     except Exception as e:
-        logger.error(f"Twilio status check error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to check Twilio status")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/whatsapp/instance/create")
+async def create_whatsapp_instance(clinic_id: str, request: Request, admin: dict = Depends(require_super_admin)):
+    """Create a new WhatsApp instance in Evolution API for a clinic and return QR"""
+    if not EVOLUTION_GLOBAL_API_KEY:
+        raise HTTPException(status_code=500, detail="Evolution API Key not set")
+        
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/create"
+    headers = {
+        "apikey": EVOLUTION_GLOBAL_API_KEY,
+        "Content-Type": "application/json"
+    }
+    
+    # We construct the webhook url assuming the current host domain
+    host_url = str(request.base_url).rstrip("/")
+    if "localhost" in host_url or "127.0.0.1" in host_url:
+        webhook_target = "https://medicai-backend.onrender.com/api/webhook/evolution" # Fallback for local
+    else:
+        webhook_target = f"{host_url}/api/webhook/evolution"
+        
+    # Use clinic_id as the instance name for uniqueness
+    payload = {
+        "instanceName": clinic_id,
+        "token": clinic_id,  # Custom token for the instance
+        "qrcode": True       # Request base64 QR code response
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            data = response.json()
+            
+            # Immediately attach Webhook to this instance
+            webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{clinic_id}"
+            webhook_payload = {
+                "webhook": {
+                    "enabled": True,
+                    "url": webhook_target,
+                    "byEvents": False,
+                    "base64": False,
+                    "events": ["MESSAGES_UPSERT"]
+                }
+            }
+            await client.post(webhook_url, json=webhook_payload, headers=headers)
+            
+            return data
+    except Exception as e:
+        logger.error(f"Error creating Evolution instance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/whatsapp/instance/delete")
+async def delete_whatsapp_instance(clinic_id: str, admin: dict = Depends(require_super_admin)):
+    """Delete a WhatsApp instance"""
+    if not EVOLUTION_GLOBAL_API_KEY:
+        raise HTTPException(status_code=500, detail="Evolution API Key not set")
+        
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/logout/{clinic_id}"
+    headers = {
+        "apikey": EVOLUTION_GLOBAL_API_KEY,
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # First logout to destroy session in DB
+            await client.delete(url, headers=headers)
+            
+            # Then delete the instance entirely
+            del_url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/delete/{clinic_id}"
+            response = await client.delete(del_url, headers=headers)
+            
+            return response.json()
+    except Exception as e:
+        logger.error(f"Error deleting Evolution instance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+@api_router.get("/whatsapp/instance/qr")
+async def get_whatsapp_qr(clinic_id: str, admin: dict = Depends(require_super_admin)):
+    """Get connection state or QR code for clinic instance"""
+    if not EVOLUTION_GLOBAL_API_KEY:
+        raise HTTPException(status_code=500, detail="Evolution API Key not set")
+        
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connect/{clinic_id}"
+    headers = {
+        "apikey": EVOLUTION_GLOBAL_API_KEY,
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code == 404:
+                return {"status": "not_found"}
+            return response.json()
+    except Exception as e:
+        logger.error(f"Error getting Evolution QR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/whatsapp/instance/status")
+async def get_whatsapp_status(clinic_id: str, admin: dict = Depends(require_super_admin)):
+    """Get connection status for clinic instance"""
+    if not EVOLUTION_GLOBAL_API_KEY:
+        raise HTTPException(status_code=500, detail="Evolution API Key not set")
+        
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connectionState/{clinic_id}"
+    headers = {
+        "apikey": EVOLUTION_GLOBAL_API_KEY,
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code == 404:
+                return {"instance": {"state": "not_found"}}
+            return response.json()
+    except Exception as e:
+        logger.error(f"Error getting Evolution status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ============ PRIVACY POLICY (required by Meta) ============
 
