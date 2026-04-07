@@ -2462,18 +2462,33 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload, headers=headers)
+            
+            # Log the full response for debugging
+            logger.info(f"Evolution create response: status={response.status_code} body={response.text[:500]}")
+            
+            if response.status_code == 401:
+                logger.error(f"Evolution API key rejected (401). Check EVOLUTION_GLOBAL_API_KEY env var.")
+                raise HTTPException(status_code=500, detail="API Key de WhatsApp rechazada. Contacta al administrador.")
             if response.status_code >= 500:
                 raise HTTPException(status_code=503, detail="Servidor de WhatsApp iniciando. Por favor, intenta de nuevo en 1 minuto.")
+            if response.status_code >= 400:
+                logger.error(f"Evolution create error: {response.status_code} - {response.text[:300]}")
+                raise HTTPException(status_code=500, detail=f"Error al crear instancia de WhatsApp ({response.status_code})")
             
             try:
                 data = response.json()
             except:
                 data = {"error": response.text}
-                
-            webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{clinic_id}"
-            webhook_payload = {"webhook": {"enabled": True, "url": webhook_target, "byEvents": False, "base64": False, "events": ["MESSAGES_UPSERT"]}}
-            await client.post(webhook_url, json=webhook_payload, headers=headers)
+            
+            # Only set webhook if instance was actually created
+            if data and not data.get("error"):
+                webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{clinic_id}"
+                webhook_payload = {"webhook": {"enabled": True, "url": webhook_target, "byEvents": False, "base64": False, "events": ["MESSAGES_UPSERT"]}}
+                await client.post(webhook_url, json=webhook_payload, headers=headers)
+            
             return data
+    except HTTPException:
+        raise
     except httpx.RequestError as e:
         logger.error(f"Network error Evolution API: {e}")
         raise HTTPException(status_code=503, detail="Servidor de WhatsApp iniciando. Por favor, intenta de nuevo en 1 minuto.")
