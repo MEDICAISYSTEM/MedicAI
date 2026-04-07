@@ -2340,9 +2340,10 @@ async def create_whatsapp_instance(clinic_id: str, request: Request, admin: dict
         webhook_target = f"{host_url}/api/webhook/evolution"
         
     # Use clinic_id as the instance name for uniqueness
+    instance_id = clinic_id.replace("-", "")
     payload = {
-        "instanceName": clinic_id,
-        "token": clinic_id,  # Custom token for the instance
+        "instanceName": instance_id,
+        "token": instance_id,  # Custom token for the instance
         "qrcode": True       # Request base64 QR code response
     }
     
@@ -2352,7 +2353,7 @@ async def create_whatsapp_instance(clinic_id: str, request: Request, admin: dict
             data = response.json()
             
             # Immediately attach Webhook to this instance
-            webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{clinic_id}"
+            webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{instance_id}"
             webhook_payload = {
                 "webhook": {
                     "enabled": True,
@@ -2400,7 +2401,8 @@ async def get_whatsapp_qr(clinic_id: str, admin: dict = Depends(require_super_ad
     if not EVOLUTION_GLOBAL_API_KEY:
         raise HTTPException(status_code=500, detail="Evolution API Key not set")
         
-    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connect/{clinic_id}"
+    instance_id = clinic_id.replace("-", "")
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connect/{instance_id}"
     headers = {
         "apikey": EVOLUTION_GLOBAL_API_KEY,
     }
@@ -2421,7 +2423,8 @@ async def get_whatsapp_status(clinic_id: str, admin: dict = Depends(require_supe
     if not EVOLUTION_GLOBAL_API_KEY:
         raise HTTPException(status_code=500, detail="Evolution API Key not set")
         
-    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connectionState/{clinic_id}"
+    instance_id = clinic_id.replace("-", "")
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connectionState/{instance_id}"
     headers = {
         "apikey": EVOLUTION_GLOBAL_API_KEY,
     }
@@ -2457,7 +2460,13 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
     else:
         webhook_target = f"{host_url}/api/webhook/evolution"
     
-    payload = {"instanceName": clinic_id, "token": clinic_id, "qrcode": True}
+    instance_id = clinic_id.replace("-", "")
+    payload = {
+        "instanceName": instance_id, 
+        "token": instance_id, 
+        "qrcode": True,
+        "integration": "WHATSAPP-BAILEYS"
+    }
     
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -2494,7 +2503,7 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
             
             # Only set webhook if instance was actually created
             if data and not data.get("error"):
-                webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{clinic_id}"
+                webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{instance_id}"
                 webhook_payload = {"webhook": {"enabled": True, "url": webhook_target, "byEvents": False, "base64": False, "events": ["MESSAGES_UPSERT"]}}
                 await client.post(webhook_url, json=webhook_payload, headers=headers)
             
@@ -2517,7 +2526,8 @@ async def get_my_whatsapp_qr(admin: dict = Depends(get_current_admin)):
     if not EVOLUTION_GLOBAL_API_KEY:
         raise HTTPException(status_code=500, detail="Evolution API Key not set")
     
-    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connect/{clinic_id}"
+    instance_id = clinic_id.replace("-", "")
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connect/{instance_id}"
     headers = {"apikey": EVOLUTION_GLOBAL_API_KEY}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -2541,7 +2551,8 @@ async def get_my_whatsapp_status(admin: dict = Depends(get_current_admin)):
     if not EVOLUTION_GLOBAL_API_KEY:
         raise HTTPException(status_code=500, detail="Evolution API Key not set")
     
-    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connectionState/{clinic_id}"
+    instance_id = clinic_id.replace("-", "")
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connectionState/{instance_id}"
     headers = {"apikey": EVOLUTION_GLOBAL_API_KEY}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -2566,10 +2577,11 @@ async def disconnect_my_whatsapp(admin: dict = Depends(get_current_admin)):
         raise HTTPException(status_code=500, detail="Evolution API Key not set")
     
     headers = {"apikey": EVOLUTION_GLOBAL_API_KEY}
+    instance_id = clinic_id.replace("-", "")
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            await client.delete(f"{EVOLUTION_API_URL.rstrip('/')}/instance/logout/{clinic_id}", headers=headers)
-            response = await client.delete(f"{EVOLUTION_API_URL.rstrip('/')}/instance/delete/{clinic_id}", headers=headers)
+            await client.delete(f"{EVOLUTION_API_URL.rstrip('/')}/instance/logout/{instance_id}", headers=headers)
+            response = await client.delete(f"{EVOLUTION_API_URL.rstrip('/')}/instance/delete/{instance_id}", headers=headers)
             return response.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
