@@ -2473,7 +2473,19 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
                 raise HTTPException(status_code=503, detail="Servidor de WhatsApp iniciando. Por favor, intenta de nuevo en 1 minuto.")
             if response.status_code >= 400:
                 logger.error(f"Evolution create error: {response.status_code} - {response.text[:300]}")
-                raise HTTPException(status_code=500, detail=f"Error al crear instancia de WhatsApp ({response.status_code})")
+                # Parse evolution error message to show in UI
+                error_detail = response.text
+                try:
+                    error_json = response.json()
+                    if isinstance(error_json, dict) and error_json.get("message"):
+                        error_detail = error_json["message"]
+                    elif isinstance(error_json, dict) and error_json.get("error"):
+                        error_detail = error_json["error"]
+                    elif isinstance(error_json, list) and len(error_json) > 0 and isinstance(error_json[0], str):
+                        error_detail = error_json[0]
+                except:
+                    pass
+                raise HTTPException(status_code=500, detail=f"Evolution API dice: {error_detail[:100]}")
             
             try:
                 data = response.json()
