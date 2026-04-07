@@ -504,7 +504,8 @@ async def get_superadmin_stats(admin: dict = Depends(require_super_admin)):
 async def get_all_clinics(admin: dict = Depends(require_super_admin)):
     """Get all clinics (super admin only)"""
     try:
-        result = supabase.table("clinics").select("*").order("created_at", desc=True).execute()
+        # Ignore clinics that have been marked as deleted
+        result = supabase.table("clinics").select("*").eq("is_active", True).order("created_at", desc=True).execute()
         
         clinics = []
         for clinic in result.data:
@@ -2407,12 +2408,12 @@ async def get_whatsapp_qr(clinic_id: str, admin: dict = Depends(require_super_ad
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=headers)
-            if response.status_code == 404:
+            if response.status_code == 404 or response.status_code >= 500:
                 return {"status": "not_found"}
             return response.json()
     except Exception as e:
         logger.error(f"Error getting Evolution QR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "not_found"}
 
 @api_router.get("/whatsapp/instance/status")
 async def get_whatsapp_status(clinic_id: str, admin: dict = Depends(require_super_admin)):
@@ -2428,12 +2429,12 @@ async def get_whatsapp_status(clinic_id: str, admin: dict = Depends(require_supe
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=headers)
-            if response.status_code == 404:
+            if response.status_code == 404 or response.status_code >= 500:
                 return {"instance": {"state": "not_found"}}
             return response.json()
     except Exception as e:
         logger.error(f"Error getting Evolution status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"instance": {"state": "not_found"}}
 
 
 # ============ DOCTOR SELF-SERVICE WHATSAPP QR ============
@@ -2484,11 +2485,11 @@ async def get_my_whatsapp_qr(admin: dict = Depends(get_current_admin)):
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=headers)
-            if response.status_code == 404:
+            if response.status_code == 404 or response.status_code >= 500:
                 return {"status": "not_found"}
             return response.json()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "not_found"}
 
 @api_router.get("/whatsapp/my-instance/status")
 async def get_my_whatsapp_status(admin: dict = Depends(get_current_admin)):
@@ -2504,11 +2505,11 @@ async def get_my_whatsapp_status(admin: dict = Depends(get_current_admin)):
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=headers)
-            if response.status_code == 404:
+            if response.status_code == 404 or response.status_code >= 500:
                 return {"instance": {"state": "not_found"}}
             return response.json()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"instance": {"state": "not_found"}}
 
 @api_router.delete("/whatsapp/my-instance/disconnect")
 async def disconnect_my_whatsapp(admin: dict = Depends(get_current_admin)):
