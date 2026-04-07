@@ -195,7 +195,7 @@ export default function SuperAdmin() {
 
   const getWhatsAppStatus = (clinic) => {
     if (clinic.whatsapp_number) {
-      return { color: "emerald", label: "Twilio", icon: Wifi };
+      return { color: "emerald", label: "WhatsApp", icon: Wifi };
     } else {
       return { color: "slate", label: "Código", icon: WifiOff };
     }

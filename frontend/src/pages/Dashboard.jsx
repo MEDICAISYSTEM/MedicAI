@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { getDashboardStats, getAppointments, getAlerts, createConsultationNote, getMedicalRecord, updateMedicalRecord, updateAlert, updateAppointment } from "../lib/api";
+import { getDashboardStats, getAppointments, getAlerts, createConsultationNote, getMedicalRecord, updateMedicalRecord, updateAlert, updateAppointment, getMyWhatsAppStatus, getMyWhatsAppQr, createMyWhatsAppInstance, disconnectMyWhatsApp } from "../lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
@@ -43,15 +43,17 @@ import {
   GripVertical,
   Phone,
   ChevronDown,
-  X
+  X,
+  Wifi,
+  WifiOff,
+  QrCode
 } from "lucide-react";
 import { format, addDays, subDays, startOfWeek } from "date-fns";
 import { es } from "date-fns/locale";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7:00 - 20:00
-const SLOT_HEIGHT = 56; // Fixed pixel height per hour slot
-
+const SLOT_HEIGHT = 140; // Increased to 140 for plenty of vertical space
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [weekAppointments, setWeekAppointments] = useState({});
@@ -73,6 +75,12 @@ export default function Dashboard() {
   const [consultationNote, setConsultationNote] = useState({
     symptoms: "", diagnosis: "", treatment: "", observations: ""
   });
+
+  // WhatsApp QR State
+  const [waStatus, setWaStatus] = useState("loading"); // loading, disconnected, connected
+  const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [qrCode, setQrCode] = useState("");
+  const [qrLoading, setQrLoading] = useState(false);
 
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -155,6 +163,64 @@ export default function Dashboard() {
   }, [fetchData]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // ═══ WHATSAPP STATUS CHECK ═══
+  useEffect(() => {
+    const checkWaStatus = async () => {
+      try {
+        const res = await getMyWhatsAppStatus();
+        setWaStatus(res.data?.instance?.state === "open" ? "connected" : "disconnected");
+      } catch { setWaStatus("disconnected"); }
+    };
+    checkWaStatus();
+  }, []);
+
+  const handleOpenQrDialog = async () => {
+    setQrDialogOpen(true);
+    setQrLoading(true);
+    setQrCode("");
+    try {
+      const statusRes = await getMyWhatsAppStatus();
+      if (statusRes.data?.instance?.state === "open") {
+        setWaStatus("connected");
+        setQrLoading(false);
+        return;
+      }
+      const qrRes = await getMyWhatsAppQr();
+      if (qrRes.data?.status === "not_found" || !qrRes.data?.base64) {
+        const createRes = await createMyWhatsAppInstance();
+        if (createRes.data?.qrcode?.base64) { setQrCode(createRes.data.qrcode.base64); }
+      } else { setQrCode(qrRes.data.base64); }
+    } catch (e) { console.error(e); }
+    finally { setQrLoading(false); }
+  };
+
+  const handleDisconnectWa = async () => {
+    if (window.confirm("¿Desconectar tu WhatsApp del bot?")) {
+      try {
+        await disconnectMyWhatsApp();
+        setWaStatus("disconnected");
+        toast.success("WhatsApp desconectado");
+      } catch { toast.error("Error al desconectar"); }
+    }
+  };
+
+  // Polling while QR dialog open
+  useEffect(() => {
+    let interval;
+    if (qrDialogOpen && waStatus !== "connected" && !qrLoading) {
+      interval = setInterval(async () => {
+        try {
+          const res = await getMyWhatsAppStatus();
+          if (res.data?.instance?.state === "open") {
+            setWaStatus("connected");
+            toast.success("¡WhatsApp vinculado exitosamente!");
+          }
+        } catch {}
+      }, 4000);
+    }
+    return () => clearInterval(interval);
+  }, [qrDialogOpen, waStatus, qrLoading]);
 
   // ═══ DRAG AND DROP ═══
   const handleDragStart = (e, apt) => {
@@ -519,9 +585,9 @@ export default function Dashboard() {
                                 {/* Row 2: name */}
                                 <p className="font-semibold truncate leading-none mt-0.5">{apt.patient_name || 'Sin nombre'}</p>
                                 {/* Row 3: reason */}
-                                <p className="truncate opacity-70 leading-none mt-0.5">{apt.reason}</p>
+                                <p className="truncate opacity-70 leading-none mt-1">{apt.reason}</p>
                                 {/* Hover actions */}
-                                <div className="absolute bottom-0.5 left-1 right-1 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-t from-white/90 via-white/80 to-transparent pt-2">
                                   {apt.patient_phone && (
                                     <span className="flex items-center gap-0.5 text-[9px] opacity-70">
                                       <Phone className="w-2 h-2" />{apt.patient_phone}
@@ -545,6 +611,36 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* WhatsApp Connection Card */}
+      <Card className="overflow-hidden shadow-sm border-green-200" data-testid="whatsapp-card">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${waStatus === 'connected' ? 'bg-emerald-100' : 'bg-slate-100'}`}>
+                {waStatus === 'connected' ? <Wifi className="w-5 h-5 text-emerald-600" /> : <WifiOff className="w-5 h-5 text-slate-400" />}
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900 text-sm">Asistente WhatsApp</h3>
+                <p className={`text-xs ${waStatus === 'connected' ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {waStatus === 'loading' ? 'Verificando...' : waStatus === 'connected' ? '● Conectado y respondiendo' : '○ Desconectado'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {waStatus === 'connected' ? (
+                <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50 text-xs" onClick={handleDisconnectWa}>
+                  Desconectar
+                </Button>
+              ) : (
+                <Button size="sm" className="bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 text-xs" onClick={handleOpenQrDialog}>
+                  <QrCode className="w-4 h-4" /> Vincular WhatsApp
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
@@ -641,6 +737,52 @@ export default function Dashboard() {
               {savingNote ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Guardando...</>) : (<><FileText className="w-4 h-4 mr-2" /> Guardar</>)}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* WhatsApp QR Dialog */}
+      <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-[#25D366]" /> Vincular WhatsApp
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center justify-center py-4">
+            {qrLoading && (
+              <div className="flex flex-col items-center text-slate-500 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-[#25D366]" />
+                <p className="text-sm">Generando código QR...</p>
+              </div>
+            )}
+            {!qrLoading && waStatus === 'connected' && (
+              <div className="flex flex-col items-center text-emerald-600 gap-3 text-center px-4">
+                <CheckCircle className="w-16 h-16" />
+                <p className="font-semibold text-lg text-slate-800">¡Conexión Exitosa!</p>
+                <p className="text-sm text-slate-600">Tu asistente de IA ya está respondiendo por WhatsApp.</p>
+                <Button className="mt-4 w-full" onClick={() => setQrDialogOpen(false)}>Cerrar</Button>
+              </div>
+            )}
+            {!qrLoading && waStatus !== 'connected' && (
+              <div className="flex flex-col items-center gap-4 text-center">
+                <p className="text-sm text-slate-600">
+                  1. Abre WhatsApp en tu celular.<br/>
+                  2. Toca Menú → Dispositivos Vinculados.<br/>
+                  3. Apunta tu cámara a este código.
+                </p>
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                  {qrCode ? (
+                    <img src={qrCode} alt="WhatsApp QR Code" className="w-[250px] h-[250px] object-cover" />
+                  ) : (
+                    <div className="w-[250px] h-[250px] bg-slate-100 flex items-center justify-center text-xs text-slate-400">No se pudo generar el QR. Intenta de nuevo.</div>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 flex items-center gap-2">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Esperando conexión...
+                </p>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
