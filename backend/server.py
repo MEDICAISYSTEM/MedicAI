@@ -2462,11 +2462,21 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload, headers=headers)
-            data = response.json()
+            if response.status_code >= 500:
+                raise HTTPException(status_code=503, detail="Servidor de WhatsApp iniciando. Por favor, intenta de nuevo en 1 minuto.")
+            
+            try:
+                data = response.json()
+            except:
+                data = {"error": response.text}
+                
             webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{clinic_id}"
             webhook_payload = {"webhook": {"enabled": True, "url": webhook_target, "byEvents": False, "base64": False, "events": ["MESSAGES_UPSERT"]}}
             await client.post(webhook_url, json=webhook_payload, headers=headers)
             return data
+    except httpx.RequestError as e:
+        logger.error(f"Network error Evolution API: {e}")
+        raise HTTPException(status_code=503, detail="Servidor de WhatsApp iniciando. Por favor, intenta de nuevo en 1 minuto.")
     except Exception as e:
         logger.error(f"Error creating Evolution instance (doctor): {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2485,9 +2495,13 @@ async def get_my_whatsapp_qr(admin: dict = Depends(get_current_admin)):
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=headers)
-            if response.status_code == 404 or response.status_code >= 500:
+            if response.status_code >= 500:
+                return {"status": "offline"}
+            if response.status_code == 404:
                 return {"status": "not_found"}
             return response.json()
+    except httpx.RequestError:
+        return {"status": "offline"}
     except Exception as e:
         return {"status": "not_found"}
 
@@ -2505,9 +2519,13 @@ async def get_my_whatsapp_status(admin: dict = Depends(get_current_admin)):
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=headers)
-            if response.status_code == 404 or response.status_code >= 500:
+            if response.status_code >= 500:
+                return {"instance": {"state": "offline"}}
+            if response.status_code == 404:
                 return {"instance": {"state": "not_found"}}
             return response.json()
+    except httpx.RequestError:
+        return {"instance": {"state": "offline"}}
     except Exception as e:
         return {"instance": {"state": "not_found"}}
 
