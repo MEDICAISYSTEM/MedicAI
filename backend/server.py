@@ -599,35 +599,49 @@ async def update_clinic(clinic_id: str, update_data: ClinicUpdate, admin: dict =
 @api_router.delete("/superadmin/clinics/{clinic_id}")
 async def delete_clinic(clinic_id: str, admin: dict = Depends(require_super_admin)):
     """Hard delete a clinic and all associated data"""
+    errors = []
+    
     try:
-        # Get all patients in this clinic to cascade delete their data
+        # 1. Get all patients in this clinic
         patients = supabase.table("patients").select("id").eq("clinic_id", clinic_id).execute()
         patient_ids = [p["id"] for p in (patients.data or [])]
         
+        # 2. Delete per-patient data
         for pid in patient_ids:
+            # Messages (via conversations)
             try:
-                # Delete messages for each conversation
                 convos = supabase.table("conversations").select("id").eq("patient_id", pid).execute()
                 for conv in (convos.data or []):
-                    supabase.table("messages").delete().eq("conversation_id", conv["id"]).execute()
-                supabase.table("conversations").delete().eq("patient_id", pid).execute()
-                supabase.table("appointments").delete().eq("patient_id", pid).execute()
-                supabase.table("consultation_notes").delete().eq("patient_id", pid).execute()
-                supabase.table("medical_records").delete().eq("patient_id", pid).execute()
-                supabase.table("alerts").delete().eq("patient_id", pid).execute()
-            except Exception as e:
-                logger.warning(f"Error cleaning patient {pid}: {e}")
+                    try: supabase.table("messages").delete().eq("conversation_id", conv["id"]).execute()
+                    except: pass
+            except Exception as e: errors.append(f"messages for patient {pid}: {e}")
+            
+            for table in ["conversations", "appointments", "consultation_notes", "medical_records", "alerts"]:
+                try: supabase.table(table).delete().eq("patient_id", pid).execute()
+                except Exception as e: errors.append(f"{table} for patient {pid}: {e}")
         
-        # Delete patients, availability, admin accounts, then the clinic
-        supabase.table("patients").delete().eq("clinic_id", clinic_id).execute()
-        supabase.table("availability").delete().eq("clinic_id", clinic_id).execute()
-        supabase.table("admins").delete().eq("clinic_id", clinic_id).execute()
-        supabase.table("clinics").delete().eq("id", clinic_id).execute()
+        # 3. Delete clinic-level data (some tables also have clinic_id directly)
+        for table in ["conversations", "appointments", "alerts"]:
+            try: supabase.table(table).delete().eq("clinic_id", clinic_id).execute()
+            except: pass
+        
+        # 4. Delete patients, availability, admins, then the clinic itself
+        for table, col, val in [
+            ("patients", "clinic_id", clinic_id),
+            ("availability", "clinic_id", clinic_id),
+            ("admins", "clinic_id", clinic_id),
+            ("clinics", "id", clinic_id),
+        ]:
+            try: supabase.table(table).delete().eq(col, val).execute()
+            except Exception as e: errors.append(f"{table}: {e}")
+        
+        if errors:
+            logger.warning(f"Clinic {clinic_id} deleted with warnings: {errors}")
         
         return {"message": "Clinic permanently deleted"}
     except Exception as e:
         logger.error(f"Delete clinic error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete clinic")
+        raise HTTPException(status_code=500, detail=f"Failed to delete clinic: {str(e)}")
 
 @api_router.post("/superadmin/clinics/{clinic_id}/create-admin")
 async def create_clinic_admin(clinic_id: str, admin_data: AdminCreate, admin: dict = Depends(require_super_admin)):
