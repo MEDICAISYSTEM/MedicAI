@@ -282,11 +282,12 @@ export default function SuperAdmin() {
       try {
         // Try to delete from Evolution API (might fail if instance doesn't exist, that's OK)
         try { await deleteWhatsAppInstance(clinic.id); } catch (e) { console.warn("Evolution instance not found, clearing locally"); }
-        // Always clear the number from the DB
-        await updateClinic(clinic.id, { whatsapp_number: "" });
+        // Always clear the number from the DB (use null, not empty string)
+        await updateClinic(clinic.id, { whatsapp_number: null, whatsapp_display_name: null });
         toast.success("WhatsApp desconectado");
         fetchData();
       } catch (e) {
+        console.error("Disconnect error:", e);
         toast.error("Error al desconectar");
       }
     }
