@@ -2403,6 +2403,98 @@ async def get_whatsapp_status(clinic_id: str, admin: dict = Depends(require_supe
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============ DOCTOR SELF-SERVICE WHATSAPP QR ============
+
+@api_router.post("/whatsapp/my-instance/create")
+async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(get_current_admin)):
+    """Doctor creates their own WhatsApp instance"""
+    clinic_id = admin.get("clinic_id")
+    if not clinic_id:
+        raise HTTPException(status_code=400, detail="No clinic associated with this account")
+    if not EVOLUTION_GLOBAL_API_KEY:
+        raise HTTPException(status_code=500, detail="Evolution API Key not set")
+    
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/create"
+    headers = {"apikey": EVOLUTION_GLOBAL_API_KEY, "Content-Type": "application/json"}
+    
+    host_url = str(request.base_url).rstrip("/")
+    if "localhost" in host_url or "127.0.0.1" in host_url:
+        webhook_target = "https://medicai-backend.onrender.com/api/webhook/evolution"
+    else:
+        webhook_target = f"{host_url}/api/webhook/evolution"
+    
+    payload = {"instanceName": clinic_id, "token": clinic_id, "qrcode": True}
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            data = response.json()
+            webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{clinic_id}"
+            webhook_payload = {"webhook": {"enabled": True, "url": webhook_target, "byEvents": False, "base64": False, "events": ["MESSAGES_UPSERT"]}}
+            await client.post(webhook_url, json=webhook_payload, headers=headers)
+            return data
+    except Exception as e:
+        logger.error(f"Error creating Evolution instance (doctor): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/whatsapp/my-instance/qr")
+async def get_my_whatsapp_qr(admin: dict = Depends(get_current_admin)):
+    """Doctor gets their QR code"""
+    clinic_id = admin.get("clinic_id")
+    if not clinic_id:
+        raise HTTPException(status_code=400, detail="No clinic associated")
+    if not EVOLUTION_GLOBAL_API_KEY:
+        raise HTTPException(status_code=500, detail="Evolution API Key not set")
+    
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connect/{clinic_id}"
+    headers = {"apikey": EVOLUTION_GLOBAL_API_KEY}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code == 404:
+                return {"status": "not_found"}
+            return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/whatsapp/my-instance/status")
+async def get_my_whatsapp_status(admin: dict = Depends(get_current_admin)):
+    """Doctor checks their WhatsApp connection status"""
+    clinic_id = admin.get("clinic_id")
+    if not clinic_id:
+        raise HTTPException(status_code=400, detail="No clinic associated")
+    if not EVOLUTION_GLOBAL_API_KEY:
+        raise HTTPException(status_code=500, detail="Evolution API Key not set")
+    
+    url = f"{EVOLUTION_API_URL.rstrip('/')}/instance/connectionState/{clinic_id}"
+    headers = {"apikey": EVOLUTION_GLOBAL_API_KEY}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code == 404:
+                return {"instance": {"state": "not_found"}}
+            return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/whatsapp/my-instance/disconnect")
+async def disconnect_my_whatsapp(admin: dict = Depends(get_current_admin)):
+    """Doctor disconnects their WhatsApp"""
+    clinic_id = admin.get("clinic_id")
+    if not clinic_id:
+        raise HTTPException(status_code=400, detail="No clinic associated")
+    if not EVOLUTION_GLOBAL_API_KEY:
+        raise HTTPException(status_code=500, detail="Evolution API Key not set")
+    
+    headers = {"apikey": EVOLUTION_GLOBAL_API_KEY}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await client.delete(f"{EVOLUTION_API_URL.rstrip('/')}/instance/logout/{clinic_id}", headers=headers)
+            response = await client.delete(f"{EVOLUTION_API_URL.rstrip('/')}/instance/delete/{clinic_id}", headers=headers)
+            return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============ PRIVACY POLICY (required by Meta) ============
 
 @api_router.get("/privacy")
