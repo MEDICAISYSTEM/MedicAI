@@ -285,6 +285,12 @@ export default function SuperAdmin() {
         // Always clear the number from the DB (use null, not empty string)
         await updateClinic(clinic.id, { whatsapp_number: null, whatsapp_display_name: null });
         toast.success("WhatsApp desconectado");
+        
+        // Update local editing state so UI updates immediately
+        if (editingClinic && editingClinic.id === clinic.id) {
+            setEditingClinic({ ...editingClinic, whatsapp_number: null, whatsapp_display_name: null });
+        }
+        
         fetchData();
       } catch (e) {
         console.error("Disconnect error:", e);
