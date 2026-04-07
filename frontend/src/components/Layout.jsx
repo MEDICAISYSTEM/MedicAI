@@ -99,7 +99,9 @@ export default function Layout() {
       }
     } catch (e) {
       console.error("QR flow error:", e);
-      toast.error("Error al generar código QR");
+      // Fetch backend custom error message if available
+      const errMsg = e.response?.data?.detail || "Error al generar código QR";
+      toast.error(errMsg);
     } finally {
       setQrLoading(false);
     }
