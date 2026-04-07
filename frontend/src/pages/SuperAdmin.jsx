@@ -280,9 +280,11 @@ export default function SuperAdmin() {
   const handleDisconnectWhatsApp = async (clinic) => {
     if (window.confirm("¿Seguro que deseas desconectar el bot de WhatsApp para esta clínica?")) {
       try {
-        await deleteWhatsAppInstance(clinic.id);
-        toast.success("WhatsApp desconectado");
+        // Try to delete from Evolution API (might fail if instance doesn't exist, that's OK)
+        try { await deleteWhatsAppInstance(clinic.id); } catch (e) { console.warn("Evolution instance not found, clearing locally"); }
+        // Always clear the number from the DB
         await updateClinic(clinic.id, { whatsapp_number: "" });
+        toast.success("WhatsApp desconectado");
         fetchData();
       } catch (e) {
         toast.error("Error al desconectar");
