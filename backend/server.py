@@ -1499,19 +1499,32 @@ async def whatsapp_webhook(message: WebhookMessage):
         if message.to:
             destination_number = message.to.replace('+', '').strip()
             
-            # Check if destination string is a direct UUID (Evolution API instance ID)
-            import uuid
+            # Check if destination string is a UUID (with or without hyphens - our Evolution instances use no-hyphen format)
+            import uuid as uuid_module
+            resolved_uuid = None
             try:
-                # If valid UUID, treat it as clinic ID directly
-                uuid.UUID(message.to)
-                clinic_by_id = supabase.table("clinics").select("*").eq("id", message.to).eq("is_active", True).execute()
+                # Try parsing directly (works if standard format with hyphens)
+                resolved_uuid = str(uuid_module.UUID(message.to))
+            except ValueError:
+                # Try inserting hyphens for the 32-char no-hyphen format
+                clean = message.to.replace('-', '').strip()
+                if len(clean) == 32:
+                    try:
+                        formatted = f"{clean[0:8]}-{clean[8:12]}-{clean[12:16]}-{clean[16:20]}-{clean[20:32]}"
+                        resolved_uuid = str(uuid_module.UUID(formatted))
+                    except ValueError:
+                        pass
+            
+            if resolved_uuid:
+                clinic_by_id = supabase.table("clinics").select("*").eq("id", resolved_uuid).eq("is_active", True).execute()
                 if clinic_by_id.data:
                     clinic = clinic_by_id.data[0]
                     clinic_id = clinic["id"]
                     is_first_contact = True
                     explicit_clinic_matched = True
-                    logger.info(f"Clinic {clinic_id} resolved directly by instance ID")
-            except ValueError:
+                    logger.info(f"Clinic {clinic_id} resolved by instance ID (normalized UUID)")
+            
+            if not clinic_id:
                 # Not a UUID, treat as classic phone number
                 clinic_by_number = supabase.table("clinics").select("*").eq("whatsapp_number", destination_number).eq("is_active", True).execute()
                 if clinic_by_number.data:
@@ -1520,6 +1533,7 @@ async def whatsapp_webhook(message: WebhookMessage):
                     is_first_contact = True
                     explicit_clinic_matched = True
                     logger.info(f"Clinic {clinic_id} resolved by destination number: {destination_number}")
+
         
         # 1. Try to extract clinic code from message
         # Try multiple formats to find clinic code
