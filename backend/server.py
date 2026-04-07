@@ -598,14 +598,33 @@ async def update_clinic(clinic_id: str, update_data: ClinicUpdate, admin: dict =
 
 @api_router.delete("/superadmin/clinics/{clinic_id}")
 async def delete_clinic(clinic_id: str, admin: dict = Depends(require_super_admin)):
-    """Delete a clinic (soft delete by deactivating)"""
+    """Hard delete a clinic and all associated data"""
     try:
-        supabase.table("clinics").update({
-            "is_active": False,
-            "subscription_status": "cancelled",
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }).eq("id", clinic_id).execute()
-        return {"message": "Clinic deactivated"}
+        # Get all patients in this clinic to cascade delete their data
+        patients = supabase.table("patients").select("id").eq("clinic_id", clinic_id).execute()
+        patient_ids = [p["id"] for p in (patients.data or [])]
+        
+        for pid in patient_ids:
+            try:
+                # Delete messages for each conversation
+                convos = supabase.table("conversations").select("id").eq("patient_id", pid).execute()
+                for conv in (convos.data or []):
+                    supabase.table("messages").delete().eq("conversation_id", conv["id"]).execute()
+                supabase.table("conversations").delete().eq("patient_id", pid).execute()
+                supabase.table("appointments").delete().eq("patient_id", pid).execute()
+                supabase.table("consultation_notes").delete().eq("patient_id", pid).execute()
+                supabase.table("medical_records").delete().eq("patient_id", pid).execute()
+                supabase.table("alerts").delete().eq("patient_id", pid).execute()
+            except Exception as e:
+                logger.warning(f"Error cleaning patient {pid}: {e}")
+        
+        # Delete patients, availability, admin accounts, then the clinic
+        supabase.table("patients").delete().eq("clinic_id", clinic_id).execute()
+        supabase.table("availability").delete().eq("clinic_id", clinic_id).execute()
+        supabase.table("admins").delete().eq("clinic_id", clinic_id).execute()
+        supabase.table("clinics").delete().eq("id", clinic_id).execute()
+        
+        return {"message": "Clinic permanently deleted"}
     except Exception as e:
         logger.error(f"Delete clinic error: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete clinic")
