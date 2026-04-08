@@ -2555,7 +2555,23 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
             
             # Only set webhook if instance was actually created
             if data and not data.get("error"):
-                logger.info(f"Instance created successfully. Relying exclusively on Global Webhook.")
+                logger.info(f"Instance created successfully. Registering Instance-Level Webhook directly.")
+                webhook_url = f"{base_url}/webhook/set/{instance_id}"
+                webhook_payload = {
+                    "webhook": {
+                        "enabled": True,
+                        "url": webhook_target,
+                        "byEvents": False,
+                        "base64": False,
+                        "events": [
+                            "MESSAGES_UPSERT",
+                            "MESSAGES_UPDATE",
+                            "CONNECTION_UPDATE"
+                        ]
+                    }
+                }
+                wh_resp = await client.post(webhook_url, json=webhook_payload, headers=headers)
+                logger.info(f"Webhook set response: {wh_resp.status_code} - {wh_resp.text[:200]}")
             
             return data
     except HTTPException:
