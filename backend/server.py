@@ -2475,6 +2475,29 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
         webhook_target = f"{host_url}/api/webhook/evolution"
     
     instance_id = clinic_id.replace("-", "")
+    headers = {"apikey": EVOLUTION_GLOBAL_API_KEY, "Content-Type": "application/json"}
+    
+    host_url = str(request.base_url).rstrip("/")
+    if "localhost" in host_url or "127.0.0.1" in host_url:
+        webhook_target = "https://medicai-backend.onrender.com/api/webhook/evolution"
+    else:
+        webhook_target = f"{host_url}/api/webhook/evolution"
+    
+    base_url = EVOLUTION_API_URL.rstrip('/')
+    
+    # ── STEP 1: Auto-cleanup any existing ghost instance ──────────────────────
+    # This prevents the "too many devices" problem if WhatsApp disconnects.
+    # We silently try to logout + delete; if it fails we ignore and proceed.
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cleanup_client:
+            await cleanup_client.delete(f"{base_url}/instance/logout/{instance_id}", headers=headers)
+            await cleanup_client.delete(f"{base_url}/instance/delete/{instance_id}", headers=headers)
+            logger.info(f"Pre-create cleanup completed for instance {instance_id}")
+    except Exception as e:
+        logger.warning(f"Pre-create cleanup failed (non-fatal): {e}")
+    
+    # ── STEP 2: Create fresh instance ─────────────────────────────────────────
+    url = f"{base_url}/instance/create"
     payload = {
         "instanceName": instance_id, 
         "token": instance_id, 
