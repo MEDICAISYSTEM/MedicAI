@@ -2266,6 +2266,9 @@ async def evolution_webhook_receive(request: Request):
     
     event_type = body.get("event")
     
+    # Log ALL incoming webhooks for debugging
+    logger.info(f"Evolution webhook received: event={event_type}, instance={body.get('instance', 'N/A')}, keys={list(body.keys())}")
+    
     # We only care about new incoming messages
     if event_type != "messages.upsert":
         return {"status": "ok"}
@@ -2541,8 +2544,19 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
             # Only set webhook if instance was actually created
             if data and not data.get("error"):
                 webhook_url = f"{EVOLUTION_API_URL.rstrip('/')}/webhook/set/{instance_id}"
-                webhook_payload = {"webhook": {"enabled": True, "url": webhook_target, "byEvents": False, "base64": False, "events": ["MESSAGES_UPSERT"]}}
-                await client.post(webhook_url, json=webhook_payload, headers=headers)
+                # Evolution API v2 uses flat structure (NOT nested under 'webhook' key)
+                webhook_payload = {
+                    "url": webhook_target,
+                    "webhook_by_events": False,
+                    "webhook_base64": False,
+                    "events": [
+                        "MESSAGES_UPSERT",
+                        "MESSAGES_UPDATE",
+                        "CONNECTION_UPDATE"
+                    ]
+                }
+                wh_resp = await client.post(webhook_url, json=webhook_payload, headers=headers)
+                logger.info(f"Webhook set response: {wh_resp.status_code} - {wh_resp.text[:200]}")
             
             return data
     except HTTPException:
