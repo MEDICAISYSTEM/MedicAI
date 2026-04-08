@@ -2509,7 +2509,15 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
         "instanceName": instance_id, 
         "token": instance_id, 
         "qrcode": True,
-        "integration": "WHATSAPP-BAILEYS"
+        "integration": "WHATSAPP-BAILEYS",
+        "settings": {
+            "rejectCall": False,
+            "groupsIgnore": False,
+            "alwaysOnline": True,
+            "readMessages": True,
+            "readStatus": True,
+            "syncFullHistory": False
+        }
     }
     
     try:
