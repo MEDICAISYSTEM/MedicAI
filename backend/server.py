@@ -2551,9 +2551,26 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
                         "byEvents": False,
                         "base64": False,
                         "events": [
+                            "APPLICATION_STARTUP",
+                            "QRCODE_UPDATED",
                             "MESSAGES_UPSERT",
                             "MESSAGES_UPDATE",
-                            "CONNECTION_UPDATE"
+                            "MESSAGES_DELETE",
+                            "SEND_MESSAGE",
+                            "CONTACTS_SET",
+                            "CONTACTS_UPSERT",
+                            "CONTACTS_UPDATE",
+                            "PRESENCE_UPDATE",
+                            "CHATS_SET",
+                            "CHATS_UPSERT",
+                            "CHATS_UPDATE",
+                            "CHATS_DELETE",
+                            "GROUPS_UPSERT",
+                            "GROUP_UPDATE",
+                            "GROUP_PARTICIPANTS_UPDATE",
+                            "CONNECTION_UPDATE",
+                            "CALL",
+                            "NEW_JWT_TOKEN"
                         ]
                     }
                 }
