@@ -2265,10 +2265,13 @@ async def evolution_webhook_receive(request: Request):
         logger.error(f"Evolution webhook JSON parse error: {e}")
         return {"status": "ok"}
     
-    event_type = body.get("event")
+    event_type = body.get("event", "")
     
     # Log ALL incoming webhooks for debugging
-    logger.info(f"Evolution webhook received: event={event_type}, instance={body.get('instance', 'N/A')}, keys={list(body.keys())}")
+    if "message" in event_type.lower() or "chat" in event_type.lower():
+        logger.info(f"Evolution webhook RAW: {body}")
+    else:
+        logger.info(f"Evolution webhook received: event={event_type}, instance={body.get('instance', 'N/A')}, keys={list(body.keys())}")
     
     # We only care about new incoming messages
     if event_type != "messages.upsert":
