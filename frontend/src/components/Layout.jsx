@@ -86,16 +86,10 @@ export default function Layout() {
         setQrLoading(false);
         return;
       }
-      // Try to get existing QR
-      const qrRes = await getMyWhatsAppQr();
-      if (qrRes.data?.status === "not_found" || !qrRes.data?.base64) {
-        // Need to create instance first
-        const createRes = await createMyWhatsAppInstance();
-        if (createRes.data?.qrcode?.base64) {
-          setQrCode(createRes.data.qrcode.base64);
-        }
-      } else {
-        setQrCode(qrRes.data.base64);
+      // Always recreate instance to avoid stuck sessions and update webhooks
+      const createRes = await createMyWhatsAppInstance();
+      if (createRes.data?.qrcode?.base64) {
+        setQrCode(createRes.data.qrcode.base64);
       }
     } catch (e) {
       console.error("QR flow error:", e);
