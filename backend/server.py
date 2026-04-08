@@ -2261,7 +2261,8 @@ async def evolution_webhook_receive(request: Request):
     """
     try:
         body = await request.json()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Evolution webhook JSON parse error: {e}")
         return {"status": "ok"}
     
     event_type = body.get("event")
@@ -2551,26 +2552,9 @@ async def create_my_whatsapp_instance(request: Request, admin: dict = Depends(ge
                         "byEvents": False,
                         "base64": False,
                         "events": [
-                            "APPLICATION_STARTUP",
-                            "QRCODE_UPDATED",
                             "MESSAGES_UPSERT",
                             "MESSAGES_UPDATE",
-                            "MESSAGES_DELETE",
-                            "SEND_MESSAGE",
-                            "CONTACTS_SET",
-                            "CONTACTS_UPSERT",
-                            "CONTACTS_UPDATE",
-                            "PRESENCE_UPDATE",
-                            "CHATS_SET",
-                            "CHATS_UPSERT",
-                            "CHATS_UPDATE",
-                            "CHATS_DELETE",
-                            "GROUPS_UPSERT",
-                            "GROUP_UPDATE",
-                            "GROUP_PARTICIPANTS_UPDATE",
-                            "CONNECTION_UPDATE",
-                            "CALL",
-                            "NEW_JWT_TOKEN"
+                            "CONNECTION_UPDATE"
                         ]
                     }
                 }
