@@ -94,10 +94,16 @@ export const getWhatsAppQr = (clinicId) => api.get(`/whatsapp/instance/qr?clinic
 export const getWhatsAppStatus = (clinicId) => api.get(`/whatsapp/instance/status?clinic_id=${clinicId}`);
 export const deleteWhatsAppInstance = (clinicId) => api.delete(`/whatsapp/instance/delete?clinic_id=${clinicId}`);
 
-// WhatsApp Integration - Doctor Self-Service
+// WhatsApp Integration - Doctor Self-Service (Evolution API - Legacy)
 export const createMyWhatsAppInstance = () => api.post('/whatsapp/my-instance/create');
 export const getMyWhatsAppQr = () => api.get('/whatsapp/my-instance/qr');
 export const getMyWhatsAppStatus = () => api.get('/whatsapp/my-instance/status');
 export const disconnectMyWhatsApp = () => api.delete('/whatsapp/my-instance/disconnect');
+
+// WhatsApp Cloud API - Official (Meta Embedded Signup)
+export const completeEmbeddedSignup = (data) => api.post('/whatsapp/embedded-signup/complete', data);
+export const getMyWhatsAppAccount = () => api.get('/whatsapp/my-account');
+export const disconnectMyWhatsAppAccount = () => api.delete('/whatsapp/my-account');
+export const generateEncryptionKey = () => api.post('/whatsapp/generate-encryption-key');
 
 export default api;
