@@ -16,6 +16,9 @@ from passlib.context import CryptContext
 import json
 import asyncio
 import httpx
+import hmac
+import hashlib
+from cryptography.fernet import Fernet
 from twilio.rest import Client
 from twilio.request_validator import RequestValidator
 from fastapi import Form
@@ -453,6 +456,25 @@ async def get_current_user(admin: dict = Depends(get_current_admin)):
 WHATSAPP_NUMBER_LEGACY = os.environ.get('WHATSAPP_NUMBER', '521XXXXXXXXXX')  # Fallback for clinics without own number
 WHATSAPP_VERIFY_TOKEN = os.environ.get('WHATSAPP_VERIFY_TOKEN', 'medicai_2026')
 WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')  # System User permanent token
+
+# ============ META CLOUD API CONFIG ============
+META_APP_SECRET = os.environ.get('META_APP_SECRET', '')
+META_APP_ID = os.environ.get('META_APP_ID', '')
+TOKEN_ENCRYPTION_KEY = os.environ.get('TOKEN_ENCRYPTION_KEY', '')
+
+def get_fernet():
+    """Get Fernet instance for token encryption/decryption"""
+    if not TOKEN_ENCRYPTION_KEY:
+        raise ValueError("TOKEN_ENCRYPTION_KEY not set - cannot encrypt/decrypt tokens")
+    return Fernet(TOKEN_ENCRYPTION_KEY.encode())
+
+def encrypt_token(token: str) -> str:
+    """Encrypt an access token for secure storage"""
+    return get_fernet().encrypt(token.encode()).decode()
+
+def decrypt_token(encrypted: str) -> str:
+    """Decrypt an access token from secure storage"""
+    return get_fernet().decrypt(encrypted.encode()).decode()
 
 def generate_whatsapp_link(clinic):
     """Generate WhatsApp link using clinic's own number when available, fallback to shared number"""
@@ -2662,6 +2684,389 @@ async def disconnect_my_whatsapp(admin: dict = Depends(get_current_admin)):
         logger.error(f"Disconnect error: {e}")
         # Return success anyway — from the doctor's perspective they are disconnected
         return {"status": "disconnected"}
+
+# ============ META CLOUD API - OFFICIAL WEBHOOK ============
+
+@api_router.get("/webhook/meta")
+async def meta_webhook_verify(request: Request):
+    """Meta webhook verification (GET) - subscription handshake.
+    Meta sends hub.mode, hub.verify_token, hub.challenge.
+    We must return the challenge if the token matches."""
+    params = request.query_params
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
+    
+    if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
+        logger.info("Meta webhook verified successfully")
+        return PlainTextResponse(content=challenge, status_code=200)
+    
+    logger.warning(f"Meta webhook verification failed: mode={mode}, token_match={token == WHATSAPP_VERIFY_TOKEN}")
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
+@api_router.post("/webhook/meta")
+async def meta_webhook_receive(request: Request):
+    """Receive messages from Meta Cloud API - multi-tenant orchestrator.
+    Routes messages to correct clinic by looking up phone_number_id in whatsapp_accounts table.
+    Validates HMAC signature using META_APP_SECRET."""
+    # 1. Read raw body for HMAC validation
+    raw_body = await request.body()
+    
+    # 2. HMAC-SHA256 signature validation
+    if META_APP_SECRET:
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        if signature:
+            expected = "sha256=" + hmac.new(
+                META_APP_SECRET.encode(), raw_body, hashlib.sha256
+            ).hexdigest()
+            if not hmac.compare_digest(signature, expected):
+                logger.warning("Invalid Meta webhook signature - possible spoofing!")
+                raise HTTPException(status_code=403, detail="Invalid signature")
+    
+    body = json.loads(raw_body)
+    
+    # 3. Iterate through all entries and changes
+    for entry in body.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            
+            if value.get("messaging_product") != "whatsapp":
+                continue
+            
+            phone_number_id = value.get("metadata", {}).get("phone_number_id")
+            if not phone_number_id:
+                continue
+            
+            # ── Process incoming messages ──
+            for message in value.get("messages", []):
+                if message.get("type") != "text":
+                    continue
+                
+                from_phone = message.get("from", "")
+                text_body = message.get("text", {}).get("body", "")
+                msg_timestamp = message.get("timestamp", "")
+                
+                if not from_phone or not text_body:
+                    continue
+                
+                logger.info(f"Meta webhook: from={from_phone}, phone_id={phone_number_id}, msg={text_body[:50]}")
+                
+                # 4. ROUTING: Lookup clinic by phone_number_id
+                try:
+                    wa_account = supabase.table("whatsapp_accounts")\
+                        .select("id, clinic_id, display_phone_number, clinics(*)")\
+                        .eq("phone_number_id", phone_number_id)\
+                        .eq("is_active", True)\
+                        .execute()
+                except Exception as e:
+                    logger.error(f"Error looking up whatsapp_account: {e}")
+                    continue
+                
+                if not wa_account.data:
+                    logger.warning(f"No clinic mapped for phone_number_id: {phone_number_id}")
+                    continue
+                
+                account = wa_account.data[0]
+                clinic_id = account["clinic_id"]
+                
+                # 5. Get decrypted access token for this clinic
+                try:
+                    token_row = supabase.table("whatsapp_tokens")\
+                        .select("access_token_encrypted")\
+                        .eq("whatsapp_account_id", account["id"])\
+                        .execute()
+                    
+                    if not token_row.data:
+                        logger.error(f"No access token found for clinic {clinic_id}")
+                        continue
+                    
+                    access_token = decrypt_token(token_row.data[0]["access_token_encrypted"])
+                except Exception as e:
+                    logger.error(f"Error decrypting token for clinic {clinic_id}: {e}")
+                    continue
+                
+                # 6. Reuse existing AI webhook logic via WebhookMessage
+                try:
+                    webhook_msg = WebhookMessage(
+                        phone=from_phone,
+                        message=text_body,
+                        timestamp=msg_timestamp,
+                        to=account.get("display_phone_number", "")
+                    )
+                    result = await whatsapp_webhook(webhook_msg)
+                    
+                    # 7. Send reply via Meta Graph API
+                    if result.get("should_reply") and result.get("response"):
+                        await send_meta_reply(
+                            phone_number_id=phone_number_id,
+                            to=from_phone,
+                            message=result["response"],
+                            access_token=access_token
+                        )
+                except Exception as e:
+                    logger.error(f"Error processing message for clinic {clinic_id}: {e}")
+            
+            # ── Log status updates (delivery, read receipts) ──
+            for status in value.get("statuses", []):
+                logger.debug(f"Message status: {status.get('status')} for msg {status.get('id')}")
+    
+    return {"status": "ok"}
+
+
+async def send_meta_reply(phone_number_id: str, to: str, message: str, access_token: str):
+    """Send a text reply via Meta Graph API v21.0.
+    Uses the per-clinic access_token so the reply comes from the correct doctor's number."""
+    url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": message}
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            if resp.status_code == 200:
+                logger.info(f"Meta reply sent to {to} via phone_id {phone_number_id}")
+            else:
+                logger.error(f"Meta send failed: {resp.status_code} - {resp.text[:300]}")
+            return resp
+    except Exception as e:
+        logger.error(f"Meta send error: {e}")
+        return None
+
+
+async def send_template_message(
+    phone_number_id: str, to: str, template_name: str,
+    language: str, components: list, access_token: str
+):
+    """Send a template message via Meta Graph API v21.0.
+    Used for appointment reminders outside the 24h service window."""
+    url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language},
+            "components": components
+        }
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            if resp.status_code == 200:
+                logger.info(f"Template '{template_name}' sent to {to}")
+            else:
+                logger.error(f"Template send failed: {resp.status_code} - {resp.text[:300]}")
+            return resp
+    except Exception as e:
+        logger.error(f"Template send error: {e}")
+        return None
+
+
+# ============ EMBEDDED SIGNUP + WHATSAPP ACCOUNT MANAGEMENT ============
+
+@api_router.post("/whatsapp/embedded-signup/complete")
+async def complete_embedded_signup(request: Request, admin: dict = Depends(get_current_admin)):
+    """Process Embedded Signup completion from the frontend.
+    Receives the short-lived code from FB.login, exchanges it for a long-lived token,
+    registers the phone number, and stores encrypted credentials in the DB."""
+    body = await request.json()
+    code = body.get("code")
+    waba_id = body.get("waba_id")
+    phone_number_id = body.get("phone_number_id")
+    clinic_id = admin.get("clinic_id")
+    
+    if not code or not clinic_id:
+        raise HTTPException(status_code=400, detail="Missing authorization code or clinic association")
+    
+    if not waba_id or not phone_number_id:
+        raise HTTPException(status_code=400, detail="Missing WABA ID or Phone Number ID from signup")
+    
+    if not META_APP_ID or not META_APP_SECRET:
+        raise HTTPException(status_code=500, detail="Meta App credentials not configured on server")
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Step 1: Exchange code for Business Integration System User Access Token
+            token_resp = await client.get(
+                "https://graph.facebook.com/v21.0/oauth/access_token",
+                params={
+                    "client_id": META_APP_ID,
+                    "client_secret": META_APP_SECRET,
+                    "code": code
+                }
+            )
+            
+            if token_resp.status_code != 200:
+                logger.error(f"Token exchange failed: {token_resp.status_code} - {token_resp.text[:300]}")
+                raise HTTPException(status_code=400, detail="Failed to exchange authorization code for token")
+            
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+            
+            if not access_token:
+                raise HTTPException(status_code=400, detail="No access token in Meta response")
+            
+            # Step 2: Fetch phone number details from Graph API
+            phone_resp = await client.get(
+                f"https://graph.facebook.com/v21.0/{phone_number_id}",
+                params={"fields": "display_phone_number,verified_name,quality_rating"},
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            phone_data = phone_resp.json() if phone_resp.status_code == 200 else {}
+            
+            # Step 3: Register the phone number for Cloud API messaging
+            register_resp = await client.post(
+                f"https://graph.facebook.com/v21.0/{phone_number_id}/register",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"messaging_product": "whatsapp", "pin": "123456"}
+            )
+            if register_resp.status_code != 200:
+                logger.warning(f"Phone registration response: {register_resp.status_code} - {register_resp.text[:200]}")
+            
+            # Step 4: Subscribe the WABA to our app's webhook
+            sub_resp = await client.post(
+                f"https://graph.facebook.com/v21.0/{waba_id}/subscribed_apps",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            if sub_resp.status_code != 200:
+                logger.warning(f"WABA subscription response: {sub_resp.status_code} - {sub_resp.text[:200]}")
+        
+        # Step 5: Store credentials securely in database
+        wa_id = str(uuid.uuid4())
+        
+        # Upsert whatsapp_account (handles reconnection of same clinic)
+        supabase.table("whatsapp_accounts").upsert({
+            "id": wa_id,
+            "clinic_id": clinic_id,
+            "waba_id": waba_id,
+            "phone_number_id": phone_number_id,
+            "display_phone_number": phone_data.get("display_phone_number", ""),
+            "display_name": phone_data.get("verified_name", ""),
+            "quality_rating": phone_data.get("quality_rating", "GREEN"),
+            "is_active": True,
+            "connected_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="clinic_id").execute()
+        
+        # Get the actual account ID (might be existing if upserted)
+        actual_account = supabase.table("whatsapp_accounts")\
+            .select("id").eq("clinic_id", clinic_id).execute()
+        actual_wa_id = actual_account.data[0]["id"] if actual_account.data else wa_id
+        
+        # Upsert encrypted token
+        supabase.table("whatsapp_tokens").upsert({
+            "id": str(uuid.uuid4()),
+            "whatsapp_account_id": actual_wa_id,
+            "access_token_encrypted": encrypt_token(access_token),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="whatsapp_account_id").execute()
+        
+        # Also update the legacy fields on the clinics table for backward compatibility
+        display_number = phone_data.get("display_phone_number", "").replace("+", "")
+        supabase.table("clinics").update({
+            "whatsapp_number": display_number,
+            "whatsapp_phone_id": phone_number_id,
+            "whatsapp_display_name": phone_data.get("verified_name", ""),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", clinic_id).execute()
+        
+        logger.info(f"Embedded Signup complete for clinic {clinic_id}: phone_id={phone_number_id}, waba={waba_id}")
+        
+        return {
+            "success": True,
+            "phone_number_id": phone_number_id,
+            "display_phone_number": phone_data.get("display_phone_number", ""),
+            "display_name": phone_data.get("verified_name", "")
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Embedded Signup error: {e}")
+        raise HTTPException(status_code=500, detail=f"Signup processing failed: {str(e)}")
+
+
+@api_router.get("/whatsapp/my-account")
+async def get_my_whatsapp_account(admin: dict = Depends(get_current_admin)):
+    """Get the WhatsApp Cloud API account status for the current doctor's clinic."""
+    clinic_id = admin.get("clinic_id")
+    if not clinic_id:
+        raise HTTPException(status_code=400, detail="No clinic associated with this account")
+    
+    try:
+        result = supabase.table("whatsapp_accounts")\
+            .select("id, clinic_id, waba_id, phone_number_id, display_phone_number, display_name, quality_rating, messaging_limit, is_active, connected_at")\
+            .eq("clinic_id", clinic_id)\
+            .execute()
+        
+        if not result.data:
+            return {"connected": False, "account": None}
+        
+        account = result.data[0]
+        return {
+            "connected": account.get("is_active", False),
+            "account": account
+        }
+    except Exception as e:
+        logger.error(f"Get WhatsApp account error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get WhatsApp account status")
+
+
+@api_router.delete("/whatsapp/my-account")
+async def disconnect_my_whatsapp_account(admin: dict = Depends(get_current_admin)):
+    """Disconnect WhatsApp Cloud API for the current doctor's clinic.
+    This deactivates the account but keeps the record for potential reconnection."""
+    clinic_id = admin.get("clinic_id")
+    if not clinic_id:
+        raise HTTPException(status_code=400, detail="No clinic associated with this account")
+    
+    try:
+        # Deactivate (soft delete) - don't remove the record
+        supabase.table("whatsapp_accounts").update({
+            "is_active": False,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }).eq("clinic_id", clinic_id).execute()
+        
+        # Clear legacy fields on clinics table
+        supabase.table("clinics").update({
+            "whatsapp_number": None,
+            "whatsapp_phone_id": None,
+            "whatsapp_display_name": None,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", clinic_id).execute()
+        
+        logger.info(f"WhatsApp Cloud API disconnected for clinic {clinic_id}")
+        return {"success": True, "message": "WhatsApp disconnected"}
+    except Exception as e:
+        logger.error(f"Disconnect WhatsApp error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to disconnect WhatsApp")
+
+
+@api_router.post("/whatsapp/generate-encryption-key")
+async def generate_encryption_key(admin: dict = Depends(require_super_admin)):
+    """Generate a new Fernet encryption key (for initial setup only).
+    The key must be saved as TOKEN_ENCRYPTION_KEY env var."""
+    key = Fernet.generate_key().decode()
+    return {
+        "key": key,
+        "instruction": "Save this as TOKEN_ENCRYPTION_KEY in your environment variables. Do NOT lose this key - it encrypts all WhatsApp tokens."
+    }
+
 
 # ============ PRIVACY POLICY (required by Meta) ============
 
